@@ -1,9 +1,12 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
+﻿import { FormEvent, useEffect, useMemo, useState } from "react";
 import {
   createHabit,
+  deleteHabit,
   getDayChecklist,
   getHabitHeatmap,
   getHabitSummary,
+  getHabitYears,
+  getStreak,
   listHabits,
   updateChecklistItem,
   type CheckinPoint,
@@ -12,16 +15,11 @@ import {
   type HabitSummary
 } from "./api";
 import HabitHeatmap from "./components/HeatmapChart";
+import { AnalyticsPanel } from "./components/AnalyticsPanel";
 
 const todayISO = new Date().toISOString().slice(0, 10);
 const currentYear = new Date().getFullYear();
 type Tab = "dashboard" | "analytics";
-
-function addDays(dateIso: string, days: number) {
-  const d = new Date(`${dateIso}T00:00:00.000Z`);
-  d.setUTCDate(d.getUTCDate() + days);
-  return d.toISOString().slice(0, 10);
-}
 
 export function App() {
   const [habits, setHabits] = useState<Habit[]>([]);
@@ -34,35 +32,55 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>("dashboard");
   const [isHabitModalOpen, setIsHabitModalOpen] = useState(false);
-  const [heatmapRange, setHeatmapRange] = useState<string>("current");
+  const [isManageHabitsOpen, setIsManageHabitsOpen] = useState(false);
+  const [theme, setTheme] = useState<"dark" | "light">("dark");
+  const [streakCount, setStreakCount] = useState(0);
+  const [heatmapRange, setHeatmapRange] = useState<string>(String(currentYear));
+  const [availableYears, setAvailableYears] = useState<number[]>([currentYear]);
   const [heatmapWindow, setHeatmapWindow] = useState<{ start: string; end: string }>({
-    start: addDays(todayISO, -364),
-    end: todayISO
+    start: `${currentYear}-01-01`,
+    end: `${currentYear}-12-31`
   });
 
-  const heatmapRangeOptions = useMemo(
-    () => [
-      { value: "current", label: "Current" },
-      { value: String(currentYear), label: String(currentYear) },
-      { value: String(currentYear - 1), label: String(currentYear - 1) },
-      { value: String(currentYear - 2), label: String(currentYear - 2) }
-    ],
-    []
-  );
+  const heatmapRangeOptions = useMemo(() => {
+    const baseYears = new Set<number>(availableYears);
+    baseYears.add(currentYear);
+    return [...baseYears]
+      .sort((a, b) => b - a)
+      .map((year) => ({ value: String(year), label: String(year) }));
+  }, [availableYears]);
 
   const selectedHabit = useMemo(
     () => habits.find((habit) => habit.id === selectedHabitId) ?? null,
     [habits, selectedHabitId]
   );
-
+  const allTodayDone = useMemo(
+    () => checklist.length > 0 && checklist.every((item) => item.completed),
+    [checklist]
+  );
   useEffect(() => {
     void bootstrap();
   }, []);
+  useEffect(() => {
+    if (theme === "light") {
+      document.body.classList.add("light-theme");
+    } else {
+      document.body.classList.remove("light-theme");
+    }
+  }, [theme]);
 
   useEffect(() => {
     if (!selectedHabitId) return;
     void refreshHabitStats(selectedHabitId);
   }, [selectedHabitId, heatmapRange]);
+
+  useEffect(() => {
+    if (heatmapRangeOptions.length === 0) return;
+    const hasSelected = heatmapRangeOptions.some((option) => option.value === heatmapRange);
+    if (!hasSelected) {
+      setHeatmapRange(String(currentYear));
+    }
+  }, [heatmapRange, heatmapRangeOptions]);
 
   useEffect(() => {
     if (habits.length === 0) return;
@@ -81,6 +99,8 @@ export function App() {
         const [daily] = await Promise.all([getDayChecklist(todayISO)]);
         setChecklist(daily);
       }
+      const streak = await getStreak();
+      setStreakCount(streak.streak);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -89,24 +109,19 @@ export function App() {
   }
 
   async function refreshHabitStats(habitId: number) {
-    const resolvedWindow =
-      heatmapRange === "current"
-        ? { start: addDays(todayISO, -364), end: todayISO }
-        : { start: `${heatmapRange}-01-01`, end: `${heatmapRange}-12-31` };
+    const selectedYear = Number(heatmapRange);
+    const resolvedWindow = { start: `${selectedYear}-01-01`, end: `${selectedYear}-12-31` };
 
     setHeatmapWindow(resolvedWindow);
 
     try {
       setError(null);
-      const [heatmap, summaryData] = await Promise.all([
-        heatmapRange === "current"
-          ? getHabitHeatmap(habitId, {
-              start: resolvedWindow.start,
-              end: resolvedWindow.end
-            })
-          : getHabitHeatmap(habitId, { year: Number(heatmapRange) }),
-        getHabitSummary(habitId, currentYear)
+      const [years, heatmap, summaryData] = await Promise.all([
+        getHabitYears(habitId),
+        getHabitHeatmap(habitId, { year: selectedYear }),
+        getHabitSummary(habitId, selectedYear)
       ]);
+      setAvailableYears(years);
       setHeatmapData(heatmap);
       setSummary(summaryData);
     } catch (e) {
@@ -139,7 +154,45 @@ export function App() {
       if (!selectedHabitId) {
         setSelectedHabitId(created.id);
       }
+      setHeatmapRange(String(currentYear));
       await refreshChecklist(todayISO);
+      const streak = await getStreak();
+      setStreakCount(streak.streak);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+
+  async function handleDeleteHabit(habitId: number) {
+    const target = habits.find((h) => h.id === habitId);
+    if (!target) return;
+    const confirmed = window.confirm(
+      `Delete "${target.name}" from today onward? Historical data up to yesterday will remain.`
+    );
+    if (!confirmed) return;
+
+    try {
+      setError(null);
+      await deleteHabit(habitId);
+      const nextHabits = habits.filter((h) => h.id !== habitId);
+      setHabits(nextHabits);
+
+      if (selectedHabitId === habitId) {
+        if (nextHabits.length > 0) {
+          setSelectedHabitId(nextHabits[0].id);
+        } else {
+          setSelectedHabitId(null);
+          setHeatmapData([]);
+          setSummary(null);
+        }
+      }
+
+      await refreshChecklist(todayISO);
+      const streak = await getStreak();
+      setStreakCount(streak.streak);
+      if (nextHabits.length === 0) {
+        setIsManageHabitsOpen(false);
+      }
     } catch (e) {
       setError((e as Error).message);
     }
@@ -157,9 +210,33 @@ export function App() {
       if (selectedHabitId === item.habitId) {
         await refreshHabitStats(item.habitId);
       }
+      const streak = await getStreak();
+      setStreakCount(streak.streak);
     } catch (e) {
       setError((e as Error).message);
     }
+  }
+
+  function handleExportData() {
+    const payload = {
+      exportedAt: new Date().toISOString(),
+      selectedHabit,
+      selectedYear: Number(heatmapRange),
+      streak: streakCount,
+      habits,
+      checklistForToday: checklist,
+      heatmapData,
+      summary
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], {
+      type: "application/json"
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `leetbit-export-${todayISO}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
   }
 
   if (loading) {
@@ -168,55 +245,57 @@ export function App() {
 
   return (
     <main className="page">
-      <header className="topbar">
-        <h1>Leetbit Habit Tracker</h1>
-      </header>
-
-      <section className="layout">
-        <div className="panel main-panel">
-          <div className="tabs">
+      <header className="navbar">
+        <div className="nav-left">
+          <div className="brand">
+            <div className="brand-logo">LB</div>
+            <div className="brand-name">Leetbit</div>
+          </div>
+          <nav className="nav-links">
             <button
               type="button"
-              className={activeTab === "dashboard" ? "tab-btn active" : "tab-btn"}
+              className={activeTab === "dashboard" ? "nav-link active" : "nav-link"}
               onClick={() => setActiveTab("dashboard")}
             >
               Dashboard
             </button>
             <button
               type="button"
-              className={activeTab === "analytics" ? "tab-btn active" : "tab-btn"}
+              className={activeTab === "analytics" ? "nav-link active" : "nav-link"}
               onClick={() => setActiveTab("analytics")}
             >
               Analytics
             </button>
+          </nav>
+        </div>
+        <div className="nav-right">
+          <div className={allTodayDone ? "nav-chip nav-chip-done" : "nav-chip nav-chip-pending"}>
+            {"\uD83D\uDD25"} {streakCount}
           </div>
+          <button
+            type="button"
+            className="theme-btn"
+            onClick={() => setTheme((prev) => (prev === "dark" ? "light" : "dark"))}
+          >
+            {theme === "dark" ? "Light" : "Dark"}
+          </button>
+          <button type="button" className="export-btn" onClick={handleExportData}>
+            Export Data
+          </button>
+          <button
+            type="button"
+            className="add-habit-btn"
+            onClick={() => setIsHabitModalOpen(true)}
+          >
+            Add Habit
+          </button>
+        </div>
+      </header>
 
+      <section className="layout">
+        <div className="panel main-panel">
           <div className="panel-header">
             <h2>{activeTab === "dashboard" ? "Dashboard" : "Analytics"}</h2>
-            <div className="actions-row">
-              <div className="habit-select">
-                <label htmlFor="habitSelect">Habit</label>
-                <select
-                  id="habitSelect"
-                  value={selectedHabitId ?? ""}
-                  onChange={(e) => setSelectedHabitId(Number(e.target.value))}
-                  disabled={habits.length === 0}
-                >
-                  {habits.map((habit) => (
-                    <option value={habit.id} key={habit.id}>
-                      {habit.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <button
-                type="button"
-                className="add-habit-btn"
-                onClick={() => setIsHabitModalOpen(true)}
-              >
-                Add Habit
-              </button>
-            </div>
           </div>
 
           {activeTab === "dashboard" && (
@@ -255,9 +334,16 @@ export function App() {
                       date: item.date,
                       count: item.completed
                     }))}
-                    selectedRange={heatmapRange}
-                    rangeOptions={heatmapRangeOptions}
-                    onRangeChange={setHeatmapRange}
+                    selectedHabitId={selectedHabitId}
+                    habitOptions={habits.map((habit) => ({
+                      value: habit.id,
+                      label: habit.name
+                    }))}
+                    onHabitChange={setSelectedHabitId}
+                    onOpenManageHabits={() => setIsManageHabitsOpen(true)}
+                    selectedYear={heatmapRange}
+                    yearOptions={heatmapRangeOptions}
+                    onYearChange={setHeatmapRange}
                   />
                 </>
               ) : (
@@ -294,34 +380,7 @@ export function App() {
           )}
 
           {activeTab === "analytics" && summary && (
-            <div className="summary-grid">
-              <div className="summary-panel">
-                <h3>Weekly Summary (Last 8 Weeks)</h3>
-                <ul>
-                  {summary.weekly.map((item) => (
-                    <li key={item.label}>
-                      <span>{item.label}</span>
-                      <span>
-                        {item.consistency}% ({item.completed}/{item.total})
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-              <div className="summary-panel">
-                <h3>Monthly Summary ({currentYear})</h3>
-                <ul>
-                  {summary.monthly.map((item) => (
-                    <li key={item.label}>
-                      <span>{item.label}</span>
-                      <span>
-                        {item.consistency}% ({item.completed}/{item.total})
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            </div>
+            <AnalyticsPanel summary={summary} year={Number(heatmapRange)} />
           )}
 
           {activeTab === "analytics" && !summary && (
@@ -334,7 +393,6 @@ export function App() {
       </section>
 
       {error && <p className="error">{error}</p>}
-
       {isHabitModalOpen && (
         <div
           className="modal-backdrop"
@@ -353,7 +411,7 @@ export function App() {
                 type="text"
                 value={newHabitName}
                 onChange={(e) => setNewHabitName(e.target.value)}
-                placeholder="e.g. Solve 1 problem"
+                placeholder="e.g. Yoga"
                 required
               />
               <div className="modal-actions">
@@ -370,6 +428,52 @@ export function App() {
           </div>
         </div>
       )}
+
+      {isManageHabitsOpen && (
+        <div
+          className="modal-backdrop"
+          onClick={() => setIsManageHabitsOpen(false)}
+          role="presentation"
+        >
+          <div
+            className="modal"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+          >
+            <h2>Edit Habits</h2>
+            {habits.length === 0 ? (
+              <p className="muted">No active habits.</p>
+            ) : (
+              <ul className="manage-habits-list">
+                {habits.map((habit) => (
+                  <li key={habit.id}>
+                    <span>{habit.name}</span>
+                    <button
+                      type="button"
+                      className="delete-habit-btn"
+                      onClick={() => void handleDeleteHabit(habit.id)}
+                      aria-label={`Delete ${habit.name}`}
+                    >
+                      Delete
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <div className="modal-actions">
+              <button
+                type="button"
+                className="ghost-btn"
+                onClick={() => setIsManageHabitsOpen(false)}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }
+

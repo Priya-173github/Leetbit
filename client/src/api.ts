@@ -29,6 +29,16 @@ export interface HabitSummary {
   currentMonth: PeriodSummary;
   weekly: Array<PeriodSummary & { label: string }>;
   monthly: Array<PeriodSummary & { label: string }>;
+  currentStreak: number;
+  longestStreak: number;
+  lifetimeCompletions: number;
+  bestDay: string;
+  missedDayInsight: string;
+  habitComparison: Array<{
+    habitId: number;
+    name: string;
+    consistency: number;
+  }>;
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -58,6 +68,12 @@ export function createHabit(name: string) {
   });
 }
 
+export function deleteHabit(habitId: number) {
+  return request<{ success: true }>(`/habits/${habitId}`, {
+    method: "DELETE"
+  });
+}
+
 export function getHabitHeatmap(habitId: number, options: { year?: number; start?: string; end?: string }) {
   const params = new URLSearchParams();
   if (options.start && options.end) {
@@ -72,6 +88,14 @@ export function getHabitHeatmap(habitId: number, options: { year?: number; start
 
 export function getHabitSummary(habitId: number, year: number) {
   return request<HabitSummary>(`/habits/${habitId}/summary?year=${year}`);
+}
+
+export function getHabitYears(habitId: number) {
+  return request<number[]>(`/habits/${habitId}/years`);
+}
+
+export function getStreak() {
+  return request<{ streak: number; date: string }>("/streak");
 }
 
 export function getDayChecklist(date: string) {

@@ -24,6 +24,121 @@ body {
   margin: 0 0 16px 0;
 }
 
+.navbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  background: rgba(15, 23, 42, 0.92);
+  border: 1px solid #22314f;
+  border-radius: 12px;
+  padding: 10px 12px;
+  margin-bottom: 16px;
+}
+
+.nav-left {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.brand-logo {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: #22c55e;
+  color: #04130a;
+  font-size: 12px;
+  font-weight: 700;
+  display: grid;
+  place-items: center;
+}
+
+.brand-name {
+  font-weight: 700;
+}
+
+.nav-links {
+  display: flex;
+  gap: 8px;
+}
+
+.nav-link {
+  border: 0;
+  background: #0f172a;
+  color: #cbd5e1;
+  padding: 8px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: transform 0.15s ease, background-color 0.15s ease, color 0.15s ease;
+}
+
+.nav-link.active {
+  background: #123a27;
+  color: #22c55e;
+}
+
+.nav-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.nav-chip,
+.theme-btn,
+.export-btn {
+  border: 0;
+  background: #0f172a;
+  color: #cbd5e1;
+  border-radius: 8px;
+  padding: 8px 12px;
+  transition: transform 0.15s ease, background-color 0.15s ease, color 0.15s ease;
+}
+
+.theme-btn,
+.export-btn {
+  cursor: pointer;
+}
+
+.nav-chip-done {
+  /* background: #22c55e; */
+  color: #fff;
+}
+
+.nav-chip-pending {
+  background: transparent;
+  color: #22c55e;
+  border: 1px solid #22c55e;
+}
+
+.nav-link:hover,
+.theme-btn:hover,
+.export-btn:hover {
+  transform: translateY(-1px);
+  background: #1a2538;
+  color: #e2e8f0;
+}
+
+.nav-fab {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  border: 0;
+  border-radius: 999px;
+  background: #22c55e;
+  color: #04130a;
+  padding: 12px 16px;
+  font-weight: 700;
+  box-shadow: 0 10px 20px rgba(0, 0, 0, 0.35);
+  cursor: pointer;
+}
+
 .layout {
   display: block;
 }
@@ -116,16 +231,89 @@ body {
 .heatmap-toolbar {
   display: flex;
   justify-content: flex-end;
+  gap: 10px;
   margin-bottom: 8px;
 }
 
-.heatmap-range-select {
-  border: 1px solid #3b4250;
-  background: #2f353d;
-  color: #d4deee;
+.heatmap-select-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  position: relative;
+}
+
+.heatmap-select-group label {
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+.select-trigger {
+  min-width: 130px;
+  border: 1px solid #334155;
   border-radius: 8px;
-  padding: 8px 12px;
-  min-width: 120px;
+  padding: 8px 10px;
+  background: #0f172a;
+  color: #e2e8f0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+}
+
+.select-trigger.open {
+  border-color: #22c55e;
+}
+
+.select-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  background: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.35);
+  z-index: 50;
+}
+
+.select-option {
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  color: #e2e8f0;
+  padding: 9px 10px;
+  cursor: pointer;
+}
+
+.select-option:hover {
+  background: #1e293b;
+}
+
+.select-option.active {
+  background: #123a27;
+}
+
+.select-option.edit-option {
+  background: #123a27;
+  color: #fff;
+}
+
+.edit-option-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.edit-option-icon {
+  color: #fff;
+  font-size: 13px;
+}
+
+.select-caret {
+  color: #94a3b8;
   font-size: 14px;
 }
 
@@ -238,6 +426,34 @@ body {
   cursor: pointer;
 }
 
+.manage-habits-list {
+  list-style: none;
+  margin: 8px 0 0 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.manage-habits-list li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  background: #0b1322;
+  border: 1px solid #1f2a44;
+  padding: 10px;
+  border-radius: 8px;
+}
+
+.delete-habit-btn {
+  border: 1px solid #ef4444;
+  color: #ef4444;
+  background: transparent;
+  border-radius: 8px;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+
 .muted {
   color: #94a3b8;
 }
@@ -255,49 +471,115 @@ body {
   color: #cbd5e1;
 }
 
-.summary-grid {
+.analytics-wrap {
   margin-top: 14px;
+  display: grid;
+  gap: 12px;
+}
+
+.analytics-top-row {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.analytics-middle-row {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 12px;
 }
 
-.summary-panel {
+.analytics-bottom-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.analytics-metric-card,
+.analytics-card {
   background: #0f172a;
   border: 1px solid #1f2a44;
   border-radius: 10px;
   padding: 10px;
 }
 
-.summary-panel h3 {
-  margin-top: 0;
-  margin-bottom: 8px;
-}
-
-.summary-panel ul {
-  list-style: none;
+.analytics-metric-card p {
   margin: 0;
-  padding: 0;
-  display: grid;
-  gap: 6px;
+  color: #94a3b8;
+  font-size: 12px;
 }
 
-.summary-panel li {
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
-  border-bottom: 1px solid #24334f;
-  padding-bottom: 6px;
+.analytics-metric-card h3 {
+  margin: 6px 0 0 0;
+  font-size: 24px;
+}
+
+.analytics-card h3 {
+  margin: 0 0 8px 0;
+}
+
+.analytics-text {
+  margin: 0;
+  color: #cbd5e1;
+  font-size: 16px;
+}
+
+.analytics-chart {
+  width: 100%;
+  height: 240px;
 }
 
 @media (max-width: 900px) {
+
+  .navbar,
+  .nav-left,
+  .nav-right {
+    flex-wrap: wrap;
+  }
+
   .actions-row {
     width: 100%;
     justify-content: space-between;
   }
 
   .stats-grid,
-  .summary-grid {
+  .analytics-top-row,
+  .analytics-middle-row,
+  .analytics-bottom-row {
     grid-template-columns: 1fr;
   }
+}
+
+body.light-theme {
+  background: radial-gradient(circle at top, #e4eefc 0%, #d9e6fb 45%, #cfddf5 100%);
+  color: #0f172a;
+}
+
+body.light-theme .navbar,
+body.light-theme .panel,
+body.light-theme .heatmap-shell {
+  background: rgba(255, 255, 255, 0.9);
+  border-color: #bfd0ea;
+  color: #0f172a;
+}
+
+body.light-theme .nav-link,
+body.light-theme .nav-chip,
+body.light-theme .theme-btn,
+body.light-theme .export-btn,
+body.light-theme .select-trigger,
+body.light-theme .habit-select select,
+body.light-theme .add-habit-form input {
+  background: #ffffff;
+  color: #0f172a;
+  border-color: #bfd0ea;
+}
+
+body.light-theme .select-menu {
+  background: #ffffff;
+  border-color: #bfd0ea;
+}
+
+body.light-theme .select-option {
+  color: #0f172a;
 }

@@ -1,13 +1,17 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import * as echarts from "echarts";
 
 export interface HabitHeatmapProps {
   startDate: string;
   endDate: string;
   data: { date: string; count: number }[];
-  selectedRange: string;
-  rangeOptions: Array<{ value: string; label: string }>;
-  onRangeChange: (value: string) => void;
+  selectedHabitId: number | null;
+  habitOptions: Array<{ value: number; label: string }>;
+  onHabitChange: (habitId: number) => void;
+  onOpenManageHabits: () => void;
+  selectedYear: string;
+  yearOptions: Array<{ value: string; label: string }>;
+  onYearChange: (year: string) => void;
 }
 
 function parseIsoDate(value: string) {
@@ -48,13 +52,79 @@ function weekColumnsInRange(start: Date, end: Date) {
   return Math.ceil((dayOffset + dayCount) / 7);
 }
 
+interface CustomSelectProps {
+  label: string;
+  value: string;
+  options: Array<{ value: string; label: string }>;
+  onChange: (value: string) => void;
+}
+
+function CustomSelect({ label, value, options, onChange }: CustomSelectProps) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const current = options.find((opt) => opt.value === value);
+
+  useEffect(() => {
+    const onDocClick = (event: MouseEvent) => {
+      if (!rootRef.current) return;
+      if (!rootRef.current.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, []);
+
+  return (
+    <div className="heatmap-select-group" ref={rootRef}>
+      <label>{label}</label>
+      <button
+        type="button"
+        className={`select-trigger ${open ? "open" : ""}`}
+        onClick={() => setOpen((prev) => !prev)}
+      >
+        <span>{current?.label ?? ""}</span>
+        <span className="select-caret">⌄</span>
+      </button>
+      {open && (
+        <div className="select-menu">
+          {options.map((option) => (
+            <button
+              type="button"
+              key={option.value}
+              className={`select-option ${option.value === value ? "active" : ""} ${option.value === "__edit__" ? "edit-option" : ""}`}
+              onClick={() => {
+                onChange(option.value);
+                setOpen(false);
+              }}
+            >
+              {option.value === "__edit__" ? (
+                <span className="edit-option-label">
+                  <span className="edit-option-icon">✎</span>
+                  {option.label}
+                </span>
+              ) : (
+                option.label
+              )}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function HabitHeatmap({
   startDate,
   endDate,
   data,
-  selectedRange,
-  rangeOptions,
-  onRangeChange
+  selectedHabitId,
+  habitOptions,
+  onHabitChange,
+  onOpenManageHabits,
+  selectedYear,
+  yearOptions,
+  onYearChange
 }: HabitHeatmapProps) {
   const chartRef = useRef<HTMLDivElement | null>(null);
 
@@ -64,9 +134,9 @@ export default function HabitHeatmap({
     const countMap = new Map(data.map((entry) => [entry.date, entry.count]));
     const values: [string, number, number][] = [];
     const segments: Array<{ key: string; start: string; end: string; left: number }> = [];
-    const cellSize = 14;
-    const monthGap = 14;
-    const sidePadding = 20;
+    const cellSize = 16;
+    const monthGap = 4;
+    const sidePadding = 32;
 
     for (const d = new Date(start); d <= end; d.setUTCDate(d.getUTCDate() + 1)) {
       const iso = toIsoDate(d);
@@ -172,17 +242,30 @@ export default function HabitHeatmap({
   return (
     <div className="heatmap-shell">
       <div className="heatmap-toolbar">
-        <select
-          className="heatmap-range-select"
-          value={selectedRange}
-          onChange={(e) => onRangeChange(e.target.value)}
-        >
-          {rangeOptions.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
+        <CustomSelect
+          label="Habit"
+          value={String(selectedHabitId ?? "")}
+          options={[
+            ...habitOptions.map((option) => ({
+              value: String(option.value),
+              label: option.label
+            })),
+            { value: "__edit__", label: "Edit Habits" }
+          ]}
+          onChange={(value) => {
+            if (value === "__edit__") {
+              onOpenManageHabits();
+              return;
+            }
+            onHabitChange(Number(value));
+          }}
+        />
+        <CustomSelect
+          label="Year"
+          value={selectedYear}
+          options={yearOptions}
+          onChange={onYearChange}
+        />
       </div>
       <div className="heatmap-scroll">
         <div
