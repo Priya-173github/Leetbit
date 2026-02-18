@@ -1,5 +1,10 @@
 ﻿import { FormEvent, useEffect, useMemo, useState } from "react";
+import { BsFire } from "react-icons/bs";
+import { FiCalendar, FiTarget, FiTrendingUp } from "react-icons/fi";
 import {
+  getAllHeatmap,
+  getAllSummary,
+  getAllYears,
   createHabit,
   deleteHabit,
   getDayChecklist,
@@ -54,6 +59,7 @@ export function App() {
     () => habits.find((habit) => habit.id === selectedHabitId) ?? null,
     [habits, selectedHabitId]
   );
+  const isAllHabits = selectedHabitId === -1;
   const allTodayDone = useMemo(
     () => checklist.length > 0 && checklist.every((item) => item.completed),
     [checklist]
@@ -93,7 +99,7 @@ export function App() {
       const data = await listHabits();
       setHabits(data);
       if (data.length > 0) {
-        setSelectedHabitId(data[0].id);
+        setSelectedHabitId(-1);
       }
       if (data.length > 0) {
         const [daily] = await Promise.all([getDayChecklist(todayISO)]);
@@ -116,14 +122,25 @@ export function App() {
 
     try {
       setError(null);
-      const [years, heatmap, summaryData] = await Promise.all([
-        getHabitYears(habitId),
-        getHabitHeatmap(habitId, { year: selectedYear }),
-        getHabitSummary(habitId, selectedYear)
-      ]);
-      setAvailableYears(years);
-      setHeatmapData(heatmap);
-      setSummary(summaryData);
+      if (habitId === -1) {
+        const [years, heatmap, summaryData] = await Promise.all([
+          getAllYears(),
+          getAllHeatmap({ year: selectedYear }),
+          getAllSummary(selectedYear)
+        ]);
+        setAvailableYears(years);
+        setHeatmapData(heatmap);
+        setSummary(summaryData);
+      } else {
+        const [years, heatmap, summaryData] = await Promise.all([
+          getHabitYears(habitId),
+          getHabitHeatmap(habitId, { year: selectedYear }),
+          getHabitSummary(habitId, selectedYear)
+        ]);
+        setAvailableYears(years);
+        setHeatmapData(heatmap);
+        setSummary(summaryData);
+      }
     } catch (e) {
       setError((e as Error).message);
     }
@@ -152,7 +169,7 @@ export function App() {
       setNewHabitName("");
       setIsHabitModalOpen(false);
       if (!selectedHabitId) {
-        setSelectedHabitId(created.id);
+        setSelectedHabitId(-1);
       }
       setHeatmapRange(String(currentYear));
       await refreshChecklist(todayISO);
@@ -179,7 +196,7 @@ export function App() {
 
       if (selectedHabitId === habitId) {
         if (nextHabits.length > 0) {
-          setSelectedHabitId(nextHabits[0].id);
+          setSelectedHabitId(-1);
         } else {
           setSelectedHabitId(null);
           setHeatmapData([]);
@@ -209,6 +226,9 @@ export function App() {
       );
       if (selectedHabitId === item.habitId) {
         await refreshHabitStats(item.habitId);
+      }
+      if (selectedHabitId === -1) {
+        await refreshHabitStats(-1);
       }
       const streak = await getStreak();
       setStreakCount(streak.streak);
@@ -270,7 +290,7 @@ export function App() {
         </div>
         <div className="nav-right">
           <div className={allTodayDone ? "nav-chip nav-chip-done" : "nav-chip nav-chip-pending"}>
-            {"\uD83D\uDD25"} {streakCount}
+            <BsFire className="streak-fire-icon" /> {streakCount}
           </div>
           <button
             type="button"
@@ -300,33 +320,65 @@ export function App() {
 
           {activeTab === "dashboard" && (
             <>
-              {selectedHabit ? (
+              {selectedHabit || isAllHabits ? (
                 <>
-                  <div className="stats-grid">
-                    <div className="stat-card">
-                      <p className="stat-label">Consistency % ({currentYear})</p>
-                      <p className="stat-value">{summary?.year.consistency ?? 0}%</p>
-                      <p className="muted">
-                        {summary?.year.completed ?? 0}/{summary?.year.total ?? 0} days done
-                      </p>
+                  {summary && (
+                    <div className="stats-grid">
+                      <div className="stat-card">
+                        <div className="stat-head">
+                          <span className="stat-icon"><FiTarget /></span>
+                          <p className="stat-label">Consistency % ({currentYear})</p>
+                        </div>
+                        <div className="stat-progress-stack">
+                          <p className="stat-value">{summary?.year.consistency ?? 0}%</p>
+                          <div className="stat-bar">
+                            <span
+                              style={{ width: `${summary?.year.consistency ?? 0}%` }}
+                            />
+                          </div>
+                        </div>
+                        <p className="muted">
+                          {summary?.year.completed ?? 0}/{summary?.year.total ?? 0} days done
+                        </p>
+                      </div>
+                      <div className="stat-card">
+                        <div className="stat-head">
+                          <span className="stat-icon"><FiCalendar /></span>
+                          <p className="stat-label">This Week</p>
+                        </div>
+                        <div className="stat-progress-stack">
+                          <p className="stat-value">{summary?.currentWeek.consistency ?? 0}%</p>
+                          <div className="stat-bar">
+                            <span
+                              style={{ width: `${summary?.currentWeek.consistency ?? 0}%` }}
+                            />
+                          </div>
+                        </div>
+                        <p className="muted">
+                          {summary?.currentWeek.completed ?? 0}/{summary?.currentWeek.total ?? 0}{" "}
+                          days
+                        </p>
+                      </div>
+                      <div className="stat-card">
+                        <div className="stat-head">
+                          <span className="stat-icon"><FiTrendingUp /></span>
+                          <p className="stat-label">This Month</p>
+                        </div>
+                        <div className="stat-progress-stack">
+                          <p className="stat-value">{summary?.currentMonth.consistency ?? 0}%</p>
+                          <div className="stat-bar">
+                            <span
+                              style={{ width: `${summary?.currentMonth.consistency ?? 0}%` }}
+                            />
+                          </div>
+                        </div>
+                        <p className="muted">
+                          {summary?.currentMonth.completed ?? 0}/{summary?.currentMonth.total ?? 0}{" "}
+                          days
+                        </p>
+                      </div>
                     </div>
-                    <div className="stat-card">
-                      <p className="stat-label">This Week</p>
-                      <p className="stat-value">{summary?.currentWeek.consistency ?? 0}%</p>
-                      <p className="muted">
-                        {summary?.currentWeek.completed ?? 0}/{summary?.currentWeek.total ?? 0}{" "}
-                        days
-                      </p>
-                    </div>
-                    <div className="stat-card">
-                      <p className="stat-label">This Month</p>
-                      <p className="stat-value">{summary?.currentMonth.consistency ?? 0}%</p>
-                      <p className="muted">
-                        {summary?.currentMonth.completed ?? 0}/{summary?.currentMonth.total ?? 0}{" "}
-                        days
-                      </p>
-                    </div>
-                  </div>
+                  )}
                   <HabitHeatmap
                     startDate={heatmapWindow.start}
                     endDate={heatmapWindow.end}
@@ -334,11 +386,15 @@ export function App() {
                       date: item.date,
                       count: item.completed
                     }))}
+                    theme={theme}
                     selectedHabitId={selectedHabitId}
-                    habitOptions={habits.map((habit) => ({
-                      value: habit.id,
-                      label: habit.name
-                    }))}
+                    habitOptions={[
+                      { value: -1, label: "All" },
+                      ...habits.map((habit) => ({
+                        value: habit.id,
+                        label: habit.name
+                      }))
+                    ]}
                     onHabitChange={setSelectedHabitId}
                     onOpenManageHabits={() => setIsManageHabitsOpen(true)}
                     selectedYear={heatmapRange}
@@ -476,4 +532,7 @@ export function App() {
     </main>
   );
 }
+
+
+
 

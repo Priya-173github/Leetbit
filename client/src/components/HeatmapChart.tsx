@@ -5,6 +5,7 @@ export interface HabitHeatmapProps {
   startDate: string;
   endDate: string;
   data: { date: string; count: number }[];
+  theme: "dark" | "light";
   selectedHabitId: number | null;
   habitOptions: Array<{ value: number; label: string }>;
   onHabitChange: (habitId: number) => void;
@@ -118,6 +119,7 @@ export default function HabitHeatmap({
   startDate,
   endDate,
   data,
+  theme,
   selectedHabitId,
   habitOptions,
   onHabitChange,
@@ -182,14 +184,14 @@ export default function HabitHeatmap({
       splitLine: { show: false },
       cellSize: [14, 14],
       itemStyle: {
-        borderWidth: 1,
-        borderColor: "#0b1f3a",
-        borderRadius: 3
+        borderWidth: 0.2,
+        borderColor: theme === "light" ? "#e5edf7" : "#0e2a4a",
+        borderRadius: 4
       },
       yearLabel: { show: false },
       monthLabel: {
         show: true,
-        color: "#8b949e",
+        color: theme === "light" ? "#64748b" : "#8b949e",
         fontSize: 12,
         margin: 8
       },
@@ -199,11 +201,13 @@ export default function HabitHeatmap({
     chart.setOption({
       backgroundColor: "transparent",
       tooltip: {
+        appendToBody: true,
+        confine: false,
         position: "top",
-        backgroundColor: "#102544",
-        borderColor: "#1e3a5f",
+        backgroundColor: theme === "light" ? "#ffffff" : "#102544",
+        borderColor: theme === "light" ? "#bfd0ea" : "#1e3a5f",
         borderWidth: 1,
-        textStyle: { color: "#e2e8f0" },
+        textStyle: { color: theme === "light" ? "#0f172a" : "#e2e8f0" },
         formatter: (params: { data: [string, number, number] }) => {
           const [date, _level, count] = params.data;
           return `${date}<br/>Completed: ${count}`;
@@ -213,8 +217,12 @@ export default function HabitHeatmap({
         min: 0,
         max: 4,
         show: false,
+        type: "piecewise",
         inRange: {
-          color: ["#161b22", "#0e4429", "#006d32", "#26a641", "#39d353"]
+          color:
+            theme === "light"
+              ? ["#eef3f8", "#9be9a8", "#40c463", "#30a14e", "#216e39"]
+              : ["#0e1f33", "#0e4429", "#006d32", "#26a641", "#39d353"]
         }
       },
       calendar: calendars,
@@ -237,7 +245,7 @@ export default function HabitHeatmap({
       window.removeEventListener("resize", onResize);
       chart.dispose();
     };
-  }, [chartData, endDate, monthSegments, startDate]);
+  }, [chartData, endDate, monthSegments, startDate, theme]);
 
   return (
     <div className="heatmap-shell">
