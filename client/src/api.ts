@@ -1,4 +1,5 @@
 const API_BASE = "http://localhost:4000/api";
+let authToken: string | null = null;
 
 export interface Habit {
   id: number;
@@ -42,16 +43,23 @@ export interface HabitSummary {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const headers: HeadersInit = {
+    "Content-Type": "application/json",
+    ...(authToken ? { Authorization: `Bearer ${authToken}` } : {})
+  };
   const res = await fetch(`${API_BASE}${path}`, {
-    headers: {
-      "Content-Type": "application/json"
-    },
+    headers,
     ...init
   });
 
   if (!res.ok) {
-    const errorBody = await res.text();
-    throw new Error(errorBody || "API request failed");
+    const text = await res.text();
+    try {
+      const parsed = JSON.parse(text) as { message?: string };
+      throw new Error(parsed.message || "API request failed");
+    } catch {
+      throw new Error(text || "API request failed");
+    }
   }
 
   return res.json() as Promise<T>;
@@ -59,6 +67,33 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export function listHabits() {
   return request<Habit[]>("/habits");
+}
+
+export function setAuthToken(token: string | null) {
+  authToken = token;
+}
+
+export interface AuthUser {
+  id: number;
+  username: string;
+}
+
+export function register(username: string, password: string) {
+  return request<{ token: string; user: AuthUser }>("/auth/register", {
+    method: "POST",
+    body: JSON.stringify({ username, password })
+  });
+}
+
+export function login(username: string, password: string) {
+  return request<{ token: string; user: AuthUser }>("/auth/login", {
+    method: "POST",
+    body: JSON.stringify({ username, password })
+  });
+}
+
+export function me() {
+  return request<{ user: AuthUser }>("/auth/me");
 }
 
 export function createHabit(name: string) {

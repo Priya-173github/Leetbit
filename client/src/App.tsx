@@ -1,18 +1,23 @@
-﻿import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { BsFire } from "react-icons/bs";
-import { FiCalendar, FiTarget, FiTrendingUp } from "react-icons/fi";
+import { FiCalendar, FiTarget, FiTrendingUp, FiUser } from "react-icons/fi";
 import {
+  type AuthUser,
+  createHabit,
+  deleteHabit,
   getAllHeatmap,
   getAllSummary,
   getAllYears,
-  createHabit,
-  deleteHabit,
   getDayChecklist,
   getHabitHeatmap,
   getHabitSummary,
   getHabitYears,
   getStreak,
   listHabits,
+  login,
+  me,
+  register,
+  setAuthToken,
   updateChecklistItem,
   type CheckinPoint,
   type DayChecklistItem,
@@ -38,6 +43,12 @@ export function App() {
   const [activeTab, setActiveTab] = useState<Tab>("dashboard");
   const [isHabitModalOpen, setIsHabitModalOpen] = useState(false);
   const [isManageHabitsOpen, setIsManageHabitsOpen] = useState(false);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [authMode, setAuthMode] = useState<"login" | "register">("login");
+  const [authUsername, setAuthUsername] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
+  const [authUser, setAuthUser] = useState<AuthUser | null>(null);
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [theme, setTheme] = useState<"dark" | "light">("dark");
   const [streakCount, setStreakCount] = useState(0);
   const [heatmapRange, setHeatmapRange] = useState<string>(String(currentYear));
@@ -64,9 +75,12 @@ export function App() {
     () => checklist.length > 0 && checklist.every((item) => item.completed),
     [checklist]
   );
+  const authRequired = !authUser;
+
   useEffect(() => {
-    void bootstrap();
+    void initializeAuth();
   }, []);
+
   useEffect(() => {
     if (theme === "light") {
       document.body.classList.add("light-theme");
@@ -76,9 +90,10 @@ export function App() {
   }, [theme]);
 
   useEffect(() => {
+    if (!authUser) return;
     if (!selectedHabitId) return;
     void refreshHabitStats(selectedHabitId);
-  }, [selectedHabitId, heatmapRange]);
+  }, [authUser, selectedHabitId, heatmapRange]);
 
   useEffect(() => {
     if (heatmapRangeOptions.length === 0) return;
@@ -89,35 +104,55 @@ export function App() {
   }, [heatmapRange, heatmapRangeOptions]);
 
   useEffect(() => {
+    if (!authUser) return;
     if (habits.length === 0) return;
     void refreshChecklist(todayISO);
-  }, [habits.length]);
+  }, [authUser, habits.length]);
 
-  async function bootstrap() {
+  async function initializeAuth() {
     try {
       setLoading(true);
+      const stored = localStorage.getItem("leetbit_token");
+      if (!stored) {
+        setIsAuthModalOpen(true);
+        return;
+      }
+      setAuthToken(stored);
+      const auth = await me();
+      setAuthUser(auth.user);
+      await bootstrapData();
+    } catch {
+      setAuthToken(null);
+      localStorage.removeItem("leetbit_token");
+      setAuthUser(null);
+      setIsAuthModalOpen(true);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function bootstrapData() {
+    try {
+      setError(null);
       const data = await listHabits();
       setHabits(data);
-      if (data.length > 0) {
-        setSelectedHabitId(-1);
-      }
+      setSelectedHabitId(-1);
       if (data.length > 0) {
         const [daily] = await Promise.all([getDayChecklist(todayISO)]);
         setChecklist(daily);
+      } else {
+        setChecklist([]);
       }
       const streak = await getStreak();
       setStreakCount(streak.streak);
     } catch (e) {
       setError((e as Error).message);
-    } finally {
-      setLoading(false);
     }
   }
 
   async function refreshHabitStats(habitId: number) {
     const selectedYear = Number(heatmapRange);
     const resolvedWindow = { start: `${selectedYear}-01-01`, end: `${selectedYear}-12-31` };
-
     setHeatmapWindow(resolvedWindow);
 
     try {
@@ -164,15 +199,13 @@ export function App() {
     try {
       setError(null);
       const created = await createHabit(name);
-      const nextHabits = [...habits, created];
-      setHabits(nextHabits);
+      setHabits((prev) => [...prev, created]);
       setNewHabitName("");
       setIsHabitModalOpen(false);
-      if (!selectedHabitId) {
-        setSelectedHabitId(-1);
-      }
+      setSelectedHabitId(-1);
       setHeatmapRange(String(currentYear));
       await refreshChecklist(todayISO);
+      await refreshHabitStats(-1);
       const streak = await getStreak();
       setStreakCount(streak.streak);
     } catch (e) {
@@ -205,11 +238,10 @@ export function App() {
       }
 
       await refreshChecklist(todayISO);
+      await refreshHabitStats(-1);
       const streak = await getStreak();
       setStreakCount(streak.streak);
-      if (nextHabits.length === 0) {
-        setIsManageHabitsOpen(false);
-      }
+      if (nextHabits.length === 0) setIsManageHabitsOpen(false);
     } catch (e) {
       setError((e as Error).message);
     }
@@ -224,17 +256,46 @@ export function App() {
           entry.habitId === item.habitId ? { ...entry, completed: checked } : entry
         )
       );
-      if (selectedHabitId === item.habitId) {
-        await refreshHabitStats(item.habitId);
-      }
-      if (selectedHabitId === -1) {
-        await refreshHabitStats(-1);
-      }
+      if (selectedHabitId === item.habitId) await refreshHabitStats(item.habitId);
+      if (selectedHabitId === -1) await refreshHabitStats(-1);
       const streak = await getStreak();
       setStreakCount(streak.streak);
     } catch (e) {
       setError((e as Error).message);
     }
+  }
+
+  async function handleAuthSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    try {
+      setError(null);
+      const result =
+        authMode === "login"
+          ? await login(authUsername.trim(), authPassword)
+          : await register(authUsername.trim(), authPassword);
+      setAuthToken(result.token);
+      localStorage.setItem("leetbit_token", result.token);
+      setAuthUser(result.user);
+      setAuthUsername("");
+      setAuthPassword("");
+      setIsAuthModalOpen(false);
+      await bootstrapData();
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+
+  function handleLogout() {
+    setAuthToken(null);
+    localStorage.removeItem("leetbit_token");
+    setAuthUser(null);
+    setHabits([]);
+    setSelectedHabitId(null);
+    setHeatmapData([]);
+    setSummary(null);
+    setChecklist([]);
+    setProfileMenuOpen(false);
+    setIsAuthModalOpen(true);
   }
 
   function handleExportData() {
@@ -248,9 +309,7 @@ export function App() {
       heatmapData,
       summary
     };
-    const blob = new Blob([JSON.stringify(payload, null, 2)], {
-      type: "application/json"
-    });
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
@@ -260,7 +319,11 @@ export function App() {
   }
 
   if (loading) {
-    return <main className="page"><p>Loading...</p></main>;
+    return (
+      <main className="page">
+        <p>Loading...</p>
+      </main>
+    );
   }
 
   return (
@@ -299,16 +362,60 @@ export function App() {
           >
             {theme === "dark" ? "Light" : "Dark"}
           </button>
-          <button type="button" className="export-btn" onClick={handleExportData}>
+          <button type="button" className="export-btn" onClick={handleExportData} disabled={!authUser}>
             Export Data
           </button>
           <button
             type="button"
             className="add-habit-btn"
             onClick={() => setIsHabitModalOpen(true)}
+            disabled={!authUser}
           >
             Add Habit
           </button>
+          <div className="profile-menu-wrap">
+            <button
+              type="button"
+              className="profile-btn"
+              onClick={() => setProfileMenuOpen((prev) => !prev)}
+              aria-label={authUser ? `${authUser.username} profile menu` : "Open auth menu"}
+            >
+              <FiUser />
+            </button>
+            {profileMenuOpen && (
+              <div className="profile-menu">
+                {authUser ? (
+                  <>
+                    <div className="profile-user">@{authUser.username}</div>
+                    <button type="button" onClick={handleLogout}>Logout</button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAuthMode("login");
+                        setIsAuthModalOpen(true);
+                        setProfileMenuOpen(false);
+                      }}
+                    >
+                      Login
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAuthMode("register");
+                        setIsAuthModalOpen(true);
+                        setProfileMenuOpen(false);
+                      }}
+                    >
+                      Register
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       </header>
 
@@ -318,7 +425,11 @@ export function App() {
             <h2>{activeTab === "dashboard" ? "Dashboard" : "Analytics"}</h2>
           </div>
 
-          {activeTab === "dashboard" && (
+          {!authUser && (
+            <div className="empty-state">Login from profile to access your habit dashboard.</div>
+          )}
+
+          {activeTab === "dashboard" && authUser && (
             <>
               {selectedHabit || isAllHabits ? (
                 <>
@@ -330,16 +441,12 @@ export function App() {
                           <p className="stat-label">Consistency % ({currentYear})</p>
                         </div>
                         <div className="stat-progress-stack">
-                          <p className="stat-value">{summary?.year.consistency ?? 0}%</p>
+                          <p className="stat-value">{summary.year.consistency}%</p>
                           <div className="stat-bar">
-                            <span
-                              style={{ width: `${summary?.year.consistency ?? 0}%` }}
-                            />
+                            <span style={{ width: `${summary.year.consistency}%` }} />
                           </div>
                         </div>
-                        <p className="muted">
-                          {summary?.year.completed ?? 0}/{summary?.year.total ?? 0} days done
-                        </p>
+                        <p className="muted">{summary.year.completed}/{summary.year.total} days done</p>
                       </div>
                       <div className="stat-card">
                         <div className="stat-head">
@@ -347,17 +454,12 @@ export function App() {
                           <p className="stat-label">This Week</p>
                         </div>
                         <div className="stat-progress-stack">
-                          <p className="stat-value">{summary?.currentWeek.consistency ?? 0}%</p>
+                          <p className="stat-value">{summary.currentWeek.consistency}%</p>
                           <div className="stat-bar">
-                            <span
-                              style={{ width: `${summary?.currentWeek.consistency ?? 0}%` }}
-                            />
+                            <span style={{ width: `${summary.currentWeek.consistency}%` }} />
                           </div>
                         </div>
-                        <p className="muted">
-                          {summary?.currentWeek.completed ?? 0}/{summary?.currentWeek.total ?? 0}{" "}
-                          days
-                        </p>
+                        <p className="muted">{summary.currentWeek.completed}/{summary.currentWeek.total} days</p>
                       </div>
                       <div className="stat-card">
                         <div className="stat-head">
@@ -365,36 +467,25 @@ export function App() {
                           <p className="stat-label">This Month</p>
                         </div>
                         <div className="stat-progress-stack">
-                          <p className="stat-value">{summary?.currentMonth.consistency ?? 0}%</p>
+                          <p className="stat-value">{summary.currentMonth.consistency}%</p>
                           <div className="stat-bar">
-                            <span
-                              style={{ width: `${summary?.currentMonth.consistency ?? 0}%` }}
-                            />
+                            <span style={{ width: `${summary.currentMonth.consistency}%` }} />
                           </div>
                         </div>
-                        <p className="muted">
-                          {summary?.currentMonth.completed ?? 0}/{summary?.currentMonth.total ?? 0}{" "}
-                          days
-                        </p>
+                        <p className="muted">{summary.currentMonth.completed}/{summary.currentMonth.total} days</p>
                       </div>
                     </div>
                   )}
                   <HabitHeatmap
                     startDate={heatmapWindow.start}
                     endDate={heatmapWindow.end}
-                    data={heatmapData.map((item) => ({
-                      date: item.date,
-                      count: item.completed
-                    }))}
+                    data={heatmapData.map((item) => ({ date: item.date, count: item.completed }))}
                     theme={theme}
                     selectedHabitId={selectedHabitId}
-                    habitOptions={[
-                      { value: -1, label: "All" },
-                      ...habits.map((habit) => ({
-                        value: habit.id,
-                        label: habit.name
-                      }))
-                    ]}
+                    habitOptions={[{ value: -1, label: "All" }, ...habits.map((habit) => ({
+                      value: habit.id,
+                      label: habit.name
+                    }))]}
                     onHabitChange={setSelectedHabitId}
                     onOpenManageHabits={() => setIsManageHabitsOpen(true)}
                     selectedYear={heatmapRange}
@@ -403,18 +494,15 @@ export function App() {
                   />
                 </>
               ) : (
-                <div className="empty-state">
-                  Add your first habit to start tracking.
-                </div>
+                <div className="empty-state">Add your first habit to start tracking.</div>
               )}
 
               <div className="checklist">
                 <div className="checklist-header">
                   <h3>Daily Checklist (Today: {todayISO})</h3>
                 </div>
-
                 {checklist.length === 0 ? (
-                  <p className="muted">No habits yet. Add one from the right panel.</p>
+                  <p className="muted">No habits yet. Add one from the top bar.</p>
                 ) : (
                   <ul>
                     {checklist.map((item) => (
@@ -435,32 +523,20 @@ export function App() {
             </>
           )}
 
-          {activeTab === "analytics" && summary && (
+          {activeTab === "analytics" && authUser && summary && (
             <AnalyticsPanel summary={summary} year={Number(heatmapRange)} />
           )}
-
-          {activeTab === "analytics" && !summary && (
-            <div className="empty-state">
-              Add your first habit to view analytics.
-            </div>
+          {activeTab === "analytics" && authUser && !summary && (
+            <div className="empty-state">Add your first habit to view analytics.</div>
           )}
         </div>
-
       </section>
 
       {error && <p className="error">{error}</p>}
+
       {isHabitModalOpen && (
-        <div
-          className="modal-backdrop"
-          onClick={() => setIsHabitModalOpen(false)}
-          role="presentation"
-        >
-          <div
-            className="modal"
-            onClick={(e) => e.stopPropagation()}
-            role="dialog"
-            aria-modal="true"
-          >
+        <div className="modal-backdrop" onClick={() => setIsHabitModalOpen(false)} role="presentation">
+          <div className="modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
             <h2>Add Habit</h2>
             <form onSubmit={handleCreateHabit} className="add-habit-form">
               <input
@@ -471,11 +547,7 @@ export function App() {
                 required
               />
               <div className="modal-actions">
-                <button
-                  type="button"
-                  className="ghost-btn"
-                  onClick={() => setIsHabitModalOpen(false)}
-                >
+                <button type="button" className="ghost-btn" onClick={() => setIsHabitModalOpen(false)}>
                   Cancel
                 </button>
                 <button type="submit">Add Habit</button>
@@ -486,17 +558,8 @@ export function App() {
       )}
 
       {isManageHabitsOpen && (
-        <div
-          className="modal-backdrop"
-          onClick={() => setIsManageHabitsOpen(false)}
-          role="presentation"
-        >
-          <div
-            className="modal"
-            onClick={(e) => e.stopPropagation()}
-            role="dialog"
-            aria-modal="true"
-          >
+        <div className="modal-backdrop" onClick={() => setIsManageHabitsOpen(false)} role="presentation">
+          <div className="modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
             <h2>Edit Habits</h2>
             {habits.length === 0 ? (
               <p className="muted">No active habits.</p>
@@ -518,21 +581,62 @@ export function App() {
               </ul>
             )}
             <div className="modal-actions">
-              <button
-                type="button"
-                className="ghost-btn"
-                onClick={() => setIsManageHabitsOpen(false)}
-              >
+              <button type="button" className="ghost-btn" onClick={() => setIsManageHabitsOpen(false)}>
                 Close
               </button>
             </div>
           </div>
         </div>
       )}
+
+      {isAuthModalOpen && (
+        <div
+          className="modal-backdrop"
+          onClick={() => {
+            if (!authRequired) {
+              setIsAuthModalOpen(false);
+            }
+          }}
+          role="presentation"
+        >
+          <div className="modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+            <h2>{authMode === "login" ? "Login" : "Create Account"}</h2>
+            <form onSubmit={handleAuthSubmit} className="add-habit-form">
+              <input
+                type="text"
+                value={authUsername}
+                onChange={(e) => setAuthUsername(e.target.value)}
+                placeholder="Username"
+                required
+              />
+              <input
+                type="password"
+                value={authPassword}
+                onChange={(e) => setAuthPassword(e.target.value)}
+                placeholder="Password"
+                required
+              />
+              <div className="modal-actions">
+                <button
+                  type="button"
+                  className="ghost-btn"
+                  onClick={() => setAuthMode((prev) => (prev === "login" ? "register" : "login"))}
+                >
+                  {authMode === "login" ? "Need account?" : "Have account?"}
+                </button>
+                <button type="submit">{authMode === "login" ? "Login" : "Register"}</button>
+              </div>
+            </form>
+            {!authRequired && (
+              <div className="modal-actions" style={{ marginTop: 8 }}>
+                <button type="button" className="ghost-btn" onClick={() => setIsAuthModalOpen(false)}>
+                  Close
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </main>
   );
 }
-
-
-
-

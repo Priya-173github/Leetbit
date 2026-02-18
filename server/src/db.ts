@@ -46,12 +46,28 @@ export function get<T>(sql: string, params: unknown[] = []) {
 
 export async function initDb() {
   await run(`
-    CREATE TABLE IF NOT EXISTS habits (
+    CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT NOT NULL UNIQUE,
+      username TEXT NOT NULL UNIQUE,
+      password_hash TEXT NOT NULL,
       created_at TEXT NOT NULL DEFAULT (date('now'))
     )
   `);
+
+  await run(`
+    CREATE TABLE IF NOT EXISTS habits (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE,
+      created_at TEXT NOT NULL DEFAULT (date('now')),
+      deleted_on TEXT
+    )
+  `);
+
+  try {
+    await run("ALTER TABLE habits ADD COLUMN deleted_on TEXT");
+  } catch {
+    // Column already exists in existing databases.
+  }
 
   await run(`
     CREATE TABLE IF NOT EXISTS checkins (

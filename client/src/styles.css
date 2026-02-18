@@ -93,6 +93,69 @@ body {
   gap: 8px;
 }
 
+.profile-menu-wrap {
+  position: relative;
+}
+
+.profile-btn {
+  width: 36px;
+  height: 36px;
+  border: 0;
+  border-radius: 999px;
+  background: #0f172a;
+  color: #cbd5e1;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: transform 0.15s ease, background-color 0.15s ease, color 0.15s ease;
+}
+
+.profile-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+.profile-btn:hover {
+  transform: translateY(-1px);
+  background: #1a2538;
+  color: #e2e8f0;
+}
+
+.profile-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  min-width: 160px;
+  background: #0f172a;
+  border: 1px solid #22314f;
+  border-radius: 10px;
+  padding: 6px;
+  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.32);
+  z-index: 80;
+}
+
+.profile-user {
+  padding: 8px 10px;
+  font-size: 13px;
+  color: #93c5fd;
+}
+
+.profile-menu button {
+  width: 100%;
+  border: 0;
+  border-radius: 8px;
+  padding: 8px 10px;
+  text-align: left;
+  background: transparent;
+  color: #cbd5e1;
+  cursor: pointer;
+}
+
+.profile-menu button:hover {
+  background: #1a2538;
+  color: #f1f5f9;
+}
+
 .nav-chip,
 .theme-btn,
 .export-btn {
@@ -619,12 +682,26 @@ body.light-theme .nav-link,
 body.light-theme .nav-chip,
 body.light-theme .theme-btn,
 body.light-theme .export-btn,
+body.light-theme .profile-btn,
 body.light-theme .select-trigger,
 body.light-theme .habit-select select,
 body.light-theme .add-habit-form input {
   background: #ffffff;
   color: #0f172a;
   border-color: #bfd0ea;
+}
+
+body.light-theme .profile-menu {
+  background: #ffffff;
+  border-color: #bfd0ea;
+}
+
+body.light-theme .profile-menu button {
+  color: #1e293b;
+}
+
+body.light-theme .profile-menu button:hover {
+  background: #e9f1ff;
 }
 
 body.light-theme .select-menu {
