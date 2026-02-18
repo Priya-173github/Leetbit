@@ -17,6 +17,12 @@ const todayISO = new Date().toISOString().slice(0, 10);
 const currentYear = new Date().getFullYear();
 type Tab = "dashboard" | "analytics";
 
+function addDays(dateIso: string, days: number) {
+  const d = new Date(`${dateIso}T00:00:00.000Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
 export function App() {
   const [habits, setHabits] = useState<Habit[]>([]);
   const [selectedHabitId, setSelectedHabitId] = useState<number | null>(null);
@@ -28,6 +34,10 @@ export function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>("dashboard");
+  const [isHabitModalOpen, setIsHabitModalOpen] = useState(false);
+
+  const heatmapEndDate = todayISO;
+  const heatmapStartDate = addDays(todayISO, -364);
 
   const selectedHabit = useMemo(
     () => habits.find((habit) => habit.id === selectedHabitId) ?? null,
@@ -71,7 +81,7 @@ export function App() {
     try {
       setError(null);
       const [heatmap, summaryData] = await Promise.all([
-        getHabitHeatmap(habitId, currentYear),
+        getHabitHeatmap(habitId, { start: heatmapStartDate, end: heatmapEndDate }),
         getHabitSummary(habitId, currentYear)
       ]);
       setHeatmapData(heatmap);
@@ -102,6 +112,7 @@ export function App() {
       const nextHabits = [...habits, created];
       setHabits(nextHabits);
       setNewHabitName("");
+      setIsHabitModalOpen(false);
       if (!selectedHabitId) {
         setSelectedHabitId(created.id);
       }
@@ -159,20 +170,29 @@ export function App() {
 
           <div className="panel-header">
             <h2>{activeTab === "dashboard" ? "Dashboard" : "Analytics"}</h2>
-            <div className="habit-select">
-              <label htmlFor="habitSelect">Habit</label>
-              <select
-                id="habitSelect"
-                value={selectedHabitId ?? ""}
-                onChange={(e) => setSelectedHabitId(Number(e.target.value))}
-                disabled={habits.length === 0}
+            <div className="actions-row">
+              <div className="habit-select">
+                <label htmlFor="habitSelect">Habit</label>
+                <select
+                  id="habitSelect"
+                  value={selectedHabitId ?? ""}
+                  onChange={(e) => setSelectedHabitId(Number(e.target.value))}
+                  disabled={habits.length === 0}
+                >
+                  {habits.map((habit) => (
+                    <option value={habit.id} key={habit.id}>
+                      {habit.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <button
+                type="button"
+                className="add-habit-btn"
+                onClick={() => setIsHabitModalOpen(true)}
               >
-                {habits.map((habit) => (
-                  <option value={habit.id} key={habit.id}>
-                    {habit.name}
-                  </option>
-                ))}
-              </select>
+                Add Habit
+              </button>
             </div>
           </div>
 
@@ -206,8 +226,9 @@ export function App() {
                     </div>
                   </div>
                   <HeatmapChart
-                    year={currentYear}
                     habitName={selectedHabit.name}
+                    startDate={heatmapStartDate}
+                    endDate={heatmapEndDate}
                     data={heatmapData}
                   />
                 </>
@@ -287,22 +308,45 @@ export function App() {
           )}
         </div>
 
-        <aside className="panel side-panel">
-          <h2>Add Habit</h2>
-          <form onSubmit={handleCreateHabit} className="add-habit-form">
-            <input
-              type="text"
-              value={newHabitName}
-              onChange={(e) => setNewHabitName(e.target.value)}
-              placeholder="e.g. Solve 1 problem"
-              required
-            />
-            <button type="submit">Add Habit</button>
-          </form>
-          <p className="muted">At least one habit is required to display the heatmap.</p>
-          {error && <p className="error">{error}</p>}
-        </aside>
       </section>
+
+      {error && <p className="error">{error}</p>}
+
+      {isHabitModalOpen && (
+        <div
+          className="modal-backdrop"
+          onClick={() => setIsHabitModalOpen(false)}
+          role="presentation"
+        >
+          <div
+            className="modal"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+          >
+            <h2>Add Habit</h2>
+            <form onSubmit={handleCreateHabit} className="add-habit-form">
+              <input
+                type="text"
+                value={newHabitName}
+                onChange={(e) => setNewHabitName(e.target.value)}
+                placeholder="e.g. Solve 1 problem"
+                required
+              />
+              <div className="modal-actions">
+                <button
+                  type="button"
+                  className="ghost-btn"
+                  onClick={() => setIsHabitModalOpen(false)}
+                >
+                  Cancel
+                </button>
+                <button type="submit">Add Habit</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </main>
   );
 }

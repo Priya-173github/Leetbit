@@ -58,8 +58,16 @@ export function createHabit(name: string) {
   });
 }
 
-export function getHabitHeatmap(habitId: number, year: number) {
-  return request<CheckinPoint[]>(`/habits/${habitId}/checkins?year=${year}`);
+export function getHabitHeatmap(habitId: number, options: { year?: number; start?: string; end?: string }) {
+  const params = new URLSearchParams();
+  if (options.start && options.end) {
+    params.set("start", options.start);
+    params.set("end", options.end);
+  } else if (options.year) {
+    params.set("year", String(options.year));
+  }
+  const query = params.toString();
+  return request<CheckinPoint[]>(`/habits/${habitId}/checkins${query ? `?${query}` : ""}`);
 }
 
 export function getHabitSummary(habitId: number, year: number) {

@@ -138,19 +138,30 @@ app.post("/api/habits", async (req, res) => {
 app.get("/api/habits/:habitId/checkins", async (req, res) => {
   const habitId = Number(req.params.habitId);
   const year = Number(req.query.year ?? new Date().getFullYear());
+  const startQuery = typeof req.query.start === "string" ? req.query.start : "";
+  const endQuery = typeof req.query.end === "string" ? req.query.end : "";
 
   if (!Number.isInteger(habitId) || habitId <= 0) {
     res.status(400).json({ message: "Invalid habit id." });
     return;
   }
 
-  if (!Number.isInteger(year) || year < 1970 || year > 2100) {
+  const hasRange = Boolean(startQuery || endQuery);
+  let start = `${year}-01-01`;
+  let end = `${year}-12-31`;
+
+  if (hasRange) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(startQuery) || !/^\d{4}-\d{2}-\d{2}$/.test(endQuery)) {
+      res.status(400).json({ message: "start and end must be YYYY-MM-DD." });
+      return;
+    }
+    start = startQuery;
+    end = endQuery;
+  } else if (!Number.isInteger(year) || year < 1970 || year > 2100) {
     res.status(400).json({ message: "Invalid year." });
     return;
   }
 
-  const start = `${year}-01-01`;
-  const end = `${year}-12-31`;
   const data = await all<CheckinRow>(
     "SELECT date, completed FROM checkins WHERE habit_id = ? AND date BETWEEN ? AND ?",
     [habitId, start, end]
