@@ -13,6 +13,7 @@
     "build": "npm run build --workspace server && npm run build --workspace client"
   },
   "devDependencies": {
+    "@types/bcryptjs": "^3.0.0",
     "concurrently": "^9.2.1"
   },
   "dependencies": {

@@ -190,8 +190,26 @@ const app = express();
 const port = 4000;
 const JWT_SECRET = process.env.JWT_SECRET || "leetbit-dev-secret";
 
-app.use(cors());
+app.use(cors({
+  origin: process.env.FRONTEND_URL
+}));
 app.use(express.json());
+
+type AuthTokenPayload = jwt.JwtPayload & {
+  sub: string | number;
+  username: string;
+};
+
+function isAuthTokenPayload(value: string | jwt.JwtPayload): value is AuthTokenPayload {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "sub" in value &&
+    "username" in value &&
+    typeof (value as { username?: unknown }).username === "string"
+  );
+}
+
 
 function createAuthToken(user: { id: number; username: string }) {
   return jwt.sign({ sub: user.id, username: user.username }, JWT_SECRET, { expiresIn: "7d" });
@@ -265,10 +283,15 @@ app.use("/api", (req, res, next) => {
 
   try {
     const token = authHeader.slice("Bearer ".length);
-    const payload = jwt.verify(token, JWT_SECRET) as { sub: number; username: string };
+    const decoded = jwt.verify(token, JWT_SECRET);
+    if (!isAuthTokenPayload(decoded)) {
+      res.status(401).json({ message: "Invalid token payload." });
+      return;
+    }
+
     (req as express.Request & { user?: { id: number; username: string } }).user = {
-      id: Number(payload.sub),
-      username: payload.username
+      id: Number(decoded.sub),
+      username: decoded.username
     };
     next();
   } catch {
