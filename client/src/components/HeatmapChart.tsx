@@ -1,135 +1,163 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import * as echarts from "echarts";
-import type { CheckinPoint } from "../api";
 
-interface HeatmapChartProps {
-  habitName: string;
+export interface HabitHeatmapProps {
   startDate: string;
   endDate: string;
-  data: CheckinPoint[];
+  data: { date: string; count: number }[];
+  selectedRange: string;
+  rangeOptions: Array<{ value: string; label: string }>;
+  onRangeChange: (value: string) => void;
 }
 
-function addDays(date: Date, days: number) {
-  const d = new Date(date);
-  d.setUTCDate(d.getUTCDate() + days);
-  return d;
+function parseIsoDate(value: string) {
+  return new Date(`${value}T00:00:00.000Z`);
 }
 
-function toIso(d: Date) {
-  return d.toISOString().slice(0, 10);
+function toIsoDate(date: Date) {
+  return date.toISOString().slice(0, 10);
 }
 
-function computeMaxStreak(valuesByDate: Map<string, number>, start: string, end: string) {
-  let streak = 0;
-  let maxStreak = 0;
-  const startDate = new Date(`${start}T00:00:00.000Z`);
-  const endDate = new Date(`${end}T00:00:00.000Z`);
-  for (let d = new Date(startDate); d <= endDate; d = addDays(d, 1)) {
-    if ((valuesByDate.get(toIso(d)) ?? 0) > 0) {
-      streak += 1;
-      if (streak > maxStreak) maxStreak = streak;
-    } else {
-      streak = 0;
-    }
-  }
-  return maxStreak;
+function toHeatLevel(count: number) {
+  if (count <= 0) return 0;
+  if (count === 1) return 1;
+  if (count <= 3) return 2;
+  if (count <= 6) return 3;
+  return 4;
 }
 
-export function HeatmapChart({ habitName, startDate, endDate, data }: HeatmapChartProps) {
-  const containerRef = useRef<HTMLDivElement | null>(null);
+function monthKey(date: Date) {
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
+}
 
-  useEffect(() => {
-    if (!containerRef.current) return;
+function endOfMonth(date: Date) {
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 0));
+}
 
-    const chart = echarts.init(containerRef.current);
-    const valuesByDate = new Map(data.map((item) => [item.date, item.completed]));
-    const start = new Date(`${startDate}T00:00:00.000Z`);
-    const end = new Date(`${endDate}T00:00:00.000Z`);
-    const dayValues: [string, number][] = [];
-    let completedDays = 0;
+function minDate(a: Date, b: Date) {
+  return a < b ? a : b;
+}
+
+function maxDate(a: Date, b: Date) {
+  return a > b ? a : b;
+}
+
+function weekColumnsInRange(start: Date, end: Date) {
+  const dayOffset = start.getUTCDay();
+  const dayCount = Math.floor((end.getTime() - start.getTime()) / 86400000) + 1;
+  return Math.ceil((dayOffset + dayCount) / 7);
+}
+
+export default function HabitHeatmap({
+  startDate,
+  endDate,
+  data,
+  selectedRange,
+  rangeOptions,
+  onRangeChange
+}: HabitHeatmapProps) {
+  const chartRef = useRef<HTMLDivElement | null>(null);
+
+  const { chartData, monthSegments, chartWidth } = useMemo(() => {
+    const start = parseIsoDate(startDate);
+    const end = parseIsoDate(endDate);
+    const countMap = new Map(data.map((entry) => [entry.date, entry.count]));
+    const values: [string, number, number][] = [];
+    const segments: Array<{ key: string; start: string; end: string; left: number }> = [];
+    const cellSize = 14;
+    const monthGap = 14;
+    const sidePadding = 20;
 
     for (const d = new Date(start); d <= end; d.setUTCDate(d.getUTCDate() + 1)) {
-      const iso = d.toISOString().slice(0, 10);
-      const done = valuesByDate.get(iso) ?? 0;
-      if (done > 0) completedDays += 1;
-      dayValues.push([iso, done > 0 ? 4 : 0]);
+      const iso = toIsoDate(d);
+      const count = countMap.get(iso) ?? 0;
+      values.push([iso, toHeatLevel(count), count]);
     }
-    const maxStreak = computeMaxStreak(valuesByDate, startDate, endDate);
+
+    let cursor = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), 1));
+    let left = sidePadding;
+
+    while (cursor <= end) {
+      const segStart = maxDate(start, new Date(Date.UTC(cursor.getUTCFullYear(), cursor.getUTCMonth(), 1)));
+      const segEnd = minDate(end, endOfMonth(cursor));
+      const columns = weekColumnsInRange(segStart, segEnd);
+      const width = columns * cellSize;
+
+      segments.push({
+        key: monthKey(segStart),
+        start: toIsoDate(segStart),
+        end: toIsoDate(segEnd),
+        left
+      });
+
+      left += width + monthGap;
+      cursor = new Date(Date.UTC(cursor.getUTCFullYear(), cursor.getUTCMonth() + 1, 1));
+    }
+
+    return {
+      chartData: values,
+      monthSegments: segments,
+      chartWidth: Math.max(left + sidePadding - monthGap, 520)
+    };
+  }, [data, endDate, startDate]);
+
+  useEffect(() => {
+    if (!chartRef.current) return;
+
+    const chart = echarts.init(chartRef.current);
+    const calendars = monthSegments.map((segment) => ({
+      top: 30,
+      left: segment.left,
+      range: [segment.start, segment.end],
+      splitLine: { show: false },
+      cellSize: [14, 14],
+      itemStyle: {
+        borderWidth: 1,
+        borderColor: "#0b1f3a",
+        borderRadius: 3
+      },
+      yearLabel: { show: false },
+      monthLabel: {
+        show: true,
+        color: "#8b949e",
+        fontSize: 12,
+        margin: 8
+      },
+      dayLabel: { show: false }
+    }));
 
     chart.setOption({
+      backgroundColor: "transparent",
       tooltip: {
         position: "top",
-        backgroundColor: "#0f172a",
-        borderColor: "#334155",
+        backgroundColor: "#102544",
+        borderColor: "#1e3a5f",
         borderWidth: 1,
-        textStyle: {
-          color: "#e2e8f0"
-        },
-        formatter: (params: { data: [string, number] }) => {
-          const [date, value] = params.data;
-          return `${date}<br/>${habitName}: ${value > 0 ? "Done" : "Missed"}`;
+        textStyle: { color: "#e2e8f0" },
+        formatter: (params: { data: [string, number, number] }) => {
+          const [date, _level, count] = params.data;
+          return `${date}<br/>Completed: ${count}`;
         }
       },
-      title: [
-        {
-          text: `${completedDays} completions in the past one year`,
-          left: 6,
-          top: 4,
-          textStyle: {
-            color: "#e2e8f0",
-            fontSize: 16,
-            fontWeight: 500
-          }
-        },
-        {
-          text: `Total active days: ${completedDays}    Max streak: ${maxStreak}`,
-          right: 8,
-          top: 8,
-          textStyle: {
-            color: "#cbd5e1",
-            fontSize: 12,
-            fontWeight: 400
-          }
-        }
-      ],
       visualMap: {
         min: 0,
         max: 4,
-        calculable: false,
         show: false,
         inRange: {
-          color: ["#2d333b", "#0e4429", "#006d32", "#26a641", "#39d353"]
+          color: ["#161b22", "#0e4429", "#006d32", "#26a641", "#39d353"]
         }
       },
-      calendar: {
-        top: 48,
-        left: 12,
-        right: 12,
-        cellSize: [14, 14],
-        range: [startDate, endDate],
-        itemStyle: {
-          borderWidth: 1,
-          borderColor: "#0f172a"
-        },
-        yearLabel: { show: false },
-        monthLabel: {
-          nameMap: "en",
-          color: "#94a3b8"
-        },
-        dayLabel: {
-          firstDay: 0,
-          nameMap: ["", "Mon", "", "Wed", "", "Fri", ""],
-          color: "#64748b",
-          fontSize: 10
-        }
-      },
-      series: [
-        {
-          type: "heatmap",
-          coordinateSystem: "calendar",
-          data: dayValues
-        }
-      ]
+      calendar: calendars,
+      series: calendars.map((_c, index) => ({
+        type: "heatmap",
+        coordinateSystem: "calendar",
+        calendarIndex: index,
+        data: chartData.filter((row) => {
+          const date = row[0];
+          const segment = monthSegments[index];
+          return date >= segment.start && date <= segment.end;
+        })
+      }))
     });
 
     const onResize = () => chart.resize();
@@ -139,7 +167,30 @@ export function HeatmapChart({ habitName, startDate, endDate, data }: HeatmapCha
       window.removeEventListener("resize", onResize);
       chart.dispose();
     };
-  }, [data, endDate, habitName, startDate]);
+  }, [chartData, endDate, monthSegments, startDate]);
 
-  return <div className="heatmap" ref={containerRef} />;
+  return (
+    <div className="heatmap-shell">
+      <div className="heatmap-toolbar">
+        <select
+          className="heatmap-range-select"
+          value={selectedRange}
+          onChange={(e) => onRangeChange(e.target.value)}
+        >
+          {rangeOptions.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="heatmap-scroll">
+        <div
+          className="heatmap"
+          ref={chartRef}
+          style={{ minWidth: `${chartWidth}px` }}
+        />
+      </div>
+    </div>
+  );
 }

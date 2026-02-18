@@ -11,7 +11,7 @@ import {
   type Habit,
   type HabitSummary
 } from "./api";
-import { HeatmapChart } from "./components/HeatmapChart";
+import HabitHeatmap from "./components/HeatmapChart";
 
 const todayISO = new Date().toISOString().slice(0, 10);
 const currentYear = new Date().getFullYear();
@@ -29,15 +29,26 @@ export function App() {
   const [heatmapData, setHeatmapData] = useState<CheckinPoint[]>([]);
   const [summary, setSummary] = useState<HabitSummary | null>(null);
   const [checklist, setChecklist] = useState<DayChecklistItem[]>([]);
-  const [date, setDate] = useState(todayISO);
   const [newHabitName, setNewHabitName] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>("dashboard");
   const [isHabitModalOpen, setIsHabitModalOpen] = useState(false);
+  const [heatmapRange, setHeatmapRange] = useState<string>("current");
+  const [heatmapWindow, setHeatmapWindow] = useState<{ start: string; end: string }>({
+    start: addDays(todayISO, -364),
+    end: todayISO
+  });
 
-  const heatmapEndDate = todayISO;
-  const heatmapStartDate = addDays(todayISO, -364);
+  const heatmapRangeOptions = useMemo(
+    () => [
+      { value: "current", label: "Current" },
+      { value: String(currentYear), label: String(currentYear) },
+      { value: String(currentYear - 1), label: String(currentYear - 1) },
+      { value: String(currentYear - 2), label: String(currentYear - 2) }
+    ],
+    []
+  );
 
   const selectedHabit = useMemo(
     () => habits.find((habit) => habit.id === selectedHabitId) ?? null,
@@ -51,12 +62,12 @@ export function App() {
   useEffect(() => {
     if (!selectedHabitId) return;
     void refreshHabitStats(selectedHabitId);
-  }, [selectedHabitId]);
+  }, [selectedHabitId, heatmapRange]);
 
   useEffect(() => {
     if (habits.length === 0) return;
-    void refreshChecklist(date);
-  }, [date, habits.length]);
+    void refreshChecklist(todayISO);
+  }, [habits.length]);
 
   async function bootstrap() {
     try {
@@ -67,7 +78,7 @@ export function App() {
         setSelectedHabitId(data[0].id);
       }
       if (data.length > 0) {
-        const [daily] = await Promise.all([getDayChecklist(date)]);
+        const [daily] = await Promise.all([getDayChecklist(todayISO)]);
         setChecklist(daily);
       }
     } catch (e) {
@@ -78,10 +89,22 @@ export function App() {
   }
 
   async function refreshHabitStats(habitId: number) {
+    const resolvedWindow =
+      heatmapRange === "current"
+        ? { start: addDays(todayISO, -364), end: todayISO }
+        : { start: `${heatmapRange}-01-01`, end: `${heatmapRange}-12-31` };
+
+    setHeatmapWindow(resolvedWindow);
+
     try {
       setError(null);
       const [heatmap, summaryData] = await Promise.all([
-        getHabitHeatmap(habitId, { start: heatmapStartDate, end: heatmapEndDate }),
+        heatmapRange === "current"
+          ? getHabitHeatmap(habitId, {
+              start: resolvedWindow.start,
+              end: resolvedWindow.end
+            })
+          : getHabitHeatmap(habitId, { year: Number(heatmapRange) }),
         getHabitSummary(habitId, currentYear)
       ]);
       setHeatmapData(heatmap);
@@ -116,7 +139,7 @@ export function App() {
       if (!selectedHabitId) {
         setSelectedHabitId(created.id);
       }
-      await refreshChecklist(date);
+      await refreshChecklist(todayISO);
     } catch (e) {
       setError((e as Error).message);
     }
@@ -125,7 +148,7 @@ export function App() {
   async function toggleHabit(item: DayChecklistItem, checked: boolean) {
     try {
       setError(null);
-      await updateChecklistItem(item.habitId, date, checked);
+      await updateChecklistItem(item.habitId, todayISO, checked);
       setChecklist((prev) =>
         prev.map((entry) =>
           entry.habitId === item.habitId ? { ...entry, completed: checked } : entry
@@ -225,11 +248,16 @@ export function App() {
                       </p>
                     </div>
                   </div>
-                  <HeatmapChart
-                    habitName={selectedHabit.name}
-                    startDate={heatmapStartDate}
-                    endDate={heatmapEndDate}
-                    data={heatmapData}
+                  <HabitHeatmap
+                    startDate={heatmapWindow.start}
+                    endDate={heatmapWindow.end}
+                    data={heatmapData.map((item) => ({
+                      date: item.date,
+                      count: item.completed
+                    }))}
+                    selectedRange={heatmapRange}
+                    rangeOptions={heatmapRangeOptions}
+                    onRangeChange={setHeatmapRange}
                   />
                 </>
               ) : (
@@ -240,12 +268,7 @@ export function App() {
 
               <div className="checklist">
                 <div className="checklist-header">
-                  <h3>Daily Checklist</h3>
-                  <input
-                    type="date"
-                    value={date}
-                    onChange={(e) => setDate(e.target.value)}
-                  />
+                  <h3>Daily Checklist (Today: {todayISO})</h3>
                 </div>
 
                 {checklist.length === 0 ? (
