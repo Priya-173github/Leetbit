@@ -187,7 +187,7 @@ function computeStreaksFromMap(
 }
 
 const app = express();
-const port = 4000;
+const port = Number(process.env.PORT || 4000);
 const JWT_SECRET = process.env.JWT_SECRET || "leetbit-dev-secret";
 
 app.use(cors({
