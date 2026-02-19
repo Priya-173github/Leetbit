@@ -51,12 +51,20 @@ export async function initDb() {
     CREATE TABLE IF NOT EXISTS habits (
       id SERIAL PRIMARY KEY,
       name TEXT NOT NULL UNIQUE,
+      user_id INTEGER,
       created_at TEXT NOT NULL DEFAULT (CURRENT_DATE::text),
-      deleted_on TEXT
+      deleted_on TEXT,
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
     )
   `);
 
   await run("ALTER TABLE habits ADD COLUMN IF NOT EXISTS deleted_on TEXT");
+  await run("ALTER TABLE habits ADD COLUMN IF NOT EXISTS user_id INTEGER");
+  await run("ALTER TABLE habits DROP CONSTRAINT IF EXISTS habits_name_key");
+  await run(
+    "CREATE UNIQUE INDEX IF NOT EXISTS habits_user_name_unique ON habits (user_id, lower(name))"
+  );
+  await run("CREATE INDEX IF NOT EXISTS habits_user_idx ON habits (user_id)");
 
   await run(`
     CREATE TABLE IF NOT EXISTS checkins (
@@ -68,4 +76,5 @@ export async function initDb() {
       FOREIGN KEY(habit_id) REFERENCES habits(id) ON DELETE CASCADE
     )
   `);
+  await run("CREATE INDEX IF NOT EXISTS checkins_habit_date_idx ON checkins (habit_id, date)");
 }

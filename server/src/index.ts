@@ -7,6 +7,7 @@ import { all, get, initDb, run } from "./db.js";
 interface HabitRow {
   id: number;
   name: string;
+  user_id?: number | null;
   created_at: string;
   deleted_on?: string | null;
 }
@@ -40,6 +41,8 @@ interface UserRow {
   password_hash: string;
   created_at: string;
 }
+
+type AuthedRequest = express.Request & { user?: { id: number; username: string } };
 
 function toISODate(date: Date) {
   return date.toISOString().slice(0, 10);
@@ -215,6 +218,10 @@ function createAuthToken(user: { id: number; username: string }) {
   return jwt.sign({ sub: user.id, username: user.username }, JWT_SECRET, { expiresIn: "7d" });
 }
 
+function getAuthUser(req: express.Request) {
+  return (req as AuthedRequest).user;
+}
+
 app.post("/api/auth/register", async (req, res) => {
   const username = String(req.body?.username ?? "").trim();
   const password = String(req.body?.password ?? "").trim();
@@ -303,7 +310,7 @@ app.use("/api", (req, res, next) => {
 });
 
 app.get("/api/auth/me", (req, res) => {
-  const user = (req as express.Request & { user?: { id: number; username: string } }).user;
+  const user = getAuthUser(req);
   if (!user) {
     res.status(401).json({ message: "Unauthorized." });
     return;
@@ -316,8 +323,14 @@ app.get("/api/health", (_req, res) => {
 });
 
 app.get("/api/habits", async (_req, res) => {
+  const user = getAuthUser(_req);
+  if (!user) {
+    res.status(401).json({ message: "Unauthorized." });
+    return;
+  }
   const habits = await all<HabitRow>(
-    "SELECT id, name, created_at FROM habits WHERE deleted_on IS NULL ORDER BY id ASC"
+    "SELECT id, name, created_at FROM habits WHERE user_id = ? AND deleted_on IS NULL ORDER BY id ASC",
+    [user.id]
   );
   res.json(
     habits.map((habit) => ({
@@ -329,6 +342,11 @@ app.get("/api/habits", async (_req, res) => {
 });
 
 app.get("/api/checkins", async (req, res) => {
+  const user = getAuthUser(req);
+  if (!user) {
+    res.status(401).json({ message: "Unauthorized." });
+    return;
+  }
   const year = Number(req.query.year ?? new Date().getFullYear());
   const startQuery = typeof req.query.start === "string" ? req.query.start : "";
   const endQuery = typeof req.query.end === "string" ? req.query.end : "";
@@ -354,35 +372,53 @@ app.get("/api/checkins", async (req, res) => {
      FROM checkins c
      JOIN habits h ON h.id = c.habit_id
      WHERE c.date BETWEEN ? AND ?
+       AND h.user_id = ?
        AND h.created_at <= c.date
        AND (h.deleted_on IS NULL OR h.deleted_on > c.date)
      GROUP BY c.date
      ORDER BY c.date ASC`,
-    [start, end]
+    [start, end, user.id]
   );
   res.json(data);
 });
 
-app.get("/api/years", async (_req, res) => {
+app.get("/api/years", async (req, res) => {
+  const user = getAuthUser(req);
+  if (!user) {
+    res.status(401).json({ message: "Unauthorized." });
+    return;
+  }
   const rows = await all<{ year: string }>(
     `SELECT DISTINCT substr(c.date, 1, 4) AS year
      FROM checkins c
      JOIN habits h ON h.id = c.habit_id
-     WHERE h.created_at <= c.date
+     WHERE h.user_id = ?
+       AND c.date BETWEEN '0001-01-01' AND '9999-12-31'
+       AND h.created_at <= c.date
        AND (h.deleted_on IS NULL OR h.deleted_on > c.date)
      ORDER BY year DESC`
+    ,
+    [user.id]
   );
   res.json(rows.map((row) => Number(row.year)).filter((year) => Number.isInteger(year)));
 });
 
 app.get("/api/summary", async (req, res) => {
+  const user = getAuthUser(req);
+  if (!user) {
+    res.status(401).json({ message: "Unauthorized." });
+    return;
+  }
   const year = Number(req.query.year ?? new Date().getUTCFullYear());
   if (!Number.isInteger(year) || year < 1970 || year > 2100) {
     res.status(400).json({ message: "Invalid year." });
     return;
   }
 
-  const habits = await all<HabitRow>("SELECT id, name, created_at, deleted_on FROM habits ORDER BY id ASC");
+  const habits = await all<HabitRow>(
+    "SELECT id, name, created_at, deleted_on FROM habits WHERE user_id = ? ORDER BY id ASC",
+    [user.id]
+  );
   if (habits.length === 0) {
     res.json({
       year: { completed: 0, total: 0, consistency: 0 },
@@ -411,9 +447,11 @@ app.get("/api/summary", async (req, res) => {
 
   const checkins = await all<HabitDateRow>(
     `SELECT habit_id, date, completed
-     FROM checkins
-     WHERE date <= ?`,
-    [toISODate(today)]
+     FROM checkins c
+     JOIN habits h ON h.id = c.habit_id
+     WHERE h.user_id = ?
+       AND date <= ?`,
+    [user.id, toISODate(today)]
   );
   const checkinsMap = new Map(checkins.map((row) => [`${row.habit_id}-${row.date}`, row.completed]));
 
@@ -521,6 +559,11 @@ app.get("/api/summary", async (req, res) => {
 });
 
 app.post("/api/habits", async (req, res) => {
+  const user = getAuthUser(req);
+  if (!user) {
+    res.status(401).json({ message: "Unauthorized." });
+    return;
+  }
   const name = String(req.body?.name ?? "").trim();
   if (!name) {
     res.status(400).json({ message: "Habit name is required." });
@@ -528,8 +571,8 @@ app.post("/api/habits", async (req, res) => {
   }
 
   const existingActive = await get<HabitRow>(
-    "SELECT id FROM habits WHERE lower(name) = lower(?) AND deleted_on IS NULL",
-    [name]
+    "SELECT id FROM habits WHERE user_id = ? AND lower(name) = lower(?) AND deleted_on IS NULL",
+    [user.id, name]
   );
   if (existingActive) {
     res.status(409).json({ message: "Habit already exists." });
@@ -537,18 +580,18 @@ app.post("/api/habits", async (req, res) => {
   }
 
   const existingDeleted = await get<HabitRow>(
-    "SELECT id FROM habits WHERE lower(name) = lower(?) AND deleted_on IS NOT NULL ORDER BY deleted_on DESC LIMIT 1",
-    [name]
+    "SELECT id FROM habits WHERE user_id = ? AND lower(name) = lower(?) AND deleted_on IS NOT NULL ORDER BY deleted_on DESC LIMIT 1",
+    [user.id, name]
   );
   if (existingDeleted) {
     const today = toISODate(new Date());
     await run(
-      "UPDATE habits SET deleted_on = NULL, created_at = ? WHERE id = ?",
-      [today, existingDeleted.id]
+      "UPDATE habits SET deleted_on = NULL, created_at = ? WHERE id = ? AND user_id = ?",
+      [today, existingDeleted.id, user.id]
     );
     const restored = await get<HabitRow>(
-      "SELECT id, name, created_at FROM habits WHERE id = ?",
-      [existingDeleted.id]
+      "SELECT id, name, created_at FROM habits WHERE id = ? AND user_id = ?",
+      [existingDeleted.id, user.id]
     );
     res.status(201).json({
       id: restored?.id,
@@ -559,10 +602,13 @@ app.post("/api/habits", async (req, res) => {
   }
 
   try {
-    const result = await run("INSERT INTO habits (name) VALUES (?) RETURNING id", [name]);
+    const result = await run(
+      "INSERT INTO habits (name, user_id) VALUES (?, ?) RETURNING id",
+      [name, user.id]
+    );
     const habit = await get<HabitRow>(
-      "SELECT id, name, created_at FROM habits WHERE id = ?",
-      [result.lastID]
+      "SELECT id, name, created_at FROM habits WHERE id = ? AND user_id = ?",
+      [result.lastID, user.id]
     );
     res.status(201).json({
       id: habit?.id,
@@ -575,13 +621,21 @@ app.post("/api/habits", async (req, res) => {
 });
 
 app.delete("/api/habits/:habitId", async (req, res) => {
+  const user = getAuthUser(req);
+  if (!user) {
+    res.status(401).json({ message: "Unauthorized." });
+    return;
+  }
   const habitId = Number(req.params.habitId);
   if (!Number.isInteger(habitId) || habitId <= 0) {
     res.status(400).json({ message: "Invalid habit id." });
     return;
   }
 
-  const habit = await get<HabitRow>("SELECT id, deleted_on FROM habits WHERE id = ?", [habitId]);
+  const habit = await get<HabitRow>(
+    "SELECT id, deleted_on FROM habits WHERE id = ? AND user_id = ?",
+    [habitId, user.id]
+  );
   if (!habit) {
     res.status(404).json({ message: "Habit not found." });
     return;
@@ -592,11 +646,16 @@ app.delete("/api/habits/:habitId", async (req, res) => {
   }
 
   const today = toISODate(new Date());
-  await run("UPDATE habits SET deleted_on = ? WHERE id = ?", [today, habitId]);
+  await run("UPDATE habits SET deleted_on = ? WHERE id = ? AND user_id = ?", [today, habitId, user.id]);
   res.json({ success: true });
 });
 
 app.get("/api/habits/:habitId/checkins", async (req, res) => {
+  const user = getAuthUser(req);
+  if (!user) {
+    res.status(401).json({ message: "Unauthorized." });
+    return;
+  }
   const habitId = Number(req.params.habitId);
   const year = Number(req.query.year ?? new Date().getFullYear());
   const startQuery = typeof req.query.start === "string" ? req.query.start : "";
@@ -624,8 +683,8 @@ app.get("/api/habits/:habitId/checkins", async (req, res) => {
   }
 
   const habit = await get<HabitRow>(
-    "SELECT id, created_at, deleted_on FROM habits WHERE id = ?",
-    [habitId]
+    "SELECT id, created_at, deleted_on FROM habits WHERE id = ? AND user_id = ?",
+    [habitId, user.id]
   );
   if (!habit) {
     res.status(404).json({ message: "Habit not found." });
@@ -648,6 +707,11 @@ app.get("/api/habits/:habitId/checkins", async (req, res) => {
 });
 
 app.get("/api/habits/:habitId/years", async (req, res) => {
+  const user = getAuthUser(req);
+  if (!user) {
+    res.status(401).json({ message: "Unauthorized." });
+    return;
+  }
   const habitId = Number(req.params.habitId);
 
   if (!Number.isInteger(habitId) || habitId <= 0) {
@@ -655,7 +719,7 @@ app.get("/api/habits/:habitId/years", async (req, res) => {
     return;
   }
 
-  const habit = await get<HabitRow>("SELECT id FROM habits WHERE id = ?", [habitId]);
+  const habit = await get<HabitRow>("SELECT id FROM habits WHERE id = ? AND user_id = ?", [habitId, user.id]);
   if (!habit) {
     res.status(404).json({ message: "Habit not found." });
     return;
@@ -665,21 +729,29 @@ app.get("/api/habits/:habitId/years", async (req, res) => {
     `SELECT DISTINCT substr(date, 1, 4) AS year
      FROM checkins
      WHERE habit_id = ?
-       AND date >= (SELECT created_at FROM habits WHERE id = ?)
+       AND date >= (SELECT created_at FROM habits WHERE id = ? AND user_id = ?)
        AND (
-         (SELECT deleted_on FROM habits WHERE id = ?) IS NULL
-         OR date < (SELECT deleted_on FROM habits WHERE id = ?)
+         (SELECT deleted_on FROM habits WHERE id = ? AND user_id = ?) IS NULL
+         OR date < (SELECT deleted_on FROM habits WHERE id = ? AND user_id = ?)
        )
      ORDER BY year DESC`,
-    [habitId, habitId, habitId, habitId]
+    [habitId, habitId, user.id, habitId, user.id, habitId, user.id]
   );
 
   res.json(rows.map((row) => Number(row.year)).filter((year) => Number.isInteger(year)));
 });
 
 app.get("/api/streak", async (_req, res) => {
+  const user = getAuthUser(_req);
+  if (!user) {
+    res.status(401).json({ message: "Unauthorized." });
+    return;
+  }
   const today = toISODate(new Date());
-  const allHabits = await all<HabitRow>("SELECT id, created_at, deleted_on, name FROM habits");
+  const allHabits = await all<HabitRow>(
+    "SELECT id, created_at, deleted_on, name FROM habits WHERE user_id = ?",
+    [user.id]
+  );
   if (allHabits.length === 0) {
     res.json({ streak: 0, date: today });
     return;
@@ -687,9 +759,11 @@ app.get("/api/streak", async (_req, res) => {
 
   const rows = await all<{ habit_id: number; date: string; completed: number }>(
     `SELECT habit_id, date, completed
-     FROM checkins
-     WHERE date <= ?`,
-    [today]
+     FROM checkins c
+     JOIN habits h ON h.id = c.habit_id
+     WHERE h.user_id = ?
+       AND date <= ?`,
+    [user.id, today]
   );
   const checkinMap = new Map(rows.map((row) => [`${row.habit_id}-${row.date}`, row.completed]));
   let streak = 0;
@@ -718,6 +792,11 @@ app.get("/api/streak", async (_req, res) => {
 });
 
 app.get("/api/habits/:habitId/summary", async (req, res) => {
+  const user = getAuthUser(req);
+  if (!user) {
+    res.status(401).json({ message: "Unauthorized." });
+    return;
+  }
   const habitId = Number(req.params.habitId);
   const year = Number(req.query.year ?? new Date().getUTCFullYear());
 
@@ -731,12 +810,18 @@ app.get("/api/habits/:habitId/summary", async (req, res) => {
     return;
   }
 
-  const habit = await get<HabitRow>("SELECT id, created_at, deleted_on FROM habits WHERE id = ?", [habitId]);
+  const habit = await get<HabitRow>(
+    "SELECT id, created_at, deleted_on FROM habits WHERE id = ? AND user_id = ?",
+    [habitId, user.id]
+  );
   if (!habit) {
     res.status(404).json({ message: "Habit not found." });
     return;
   }
-  const allHabits = await all<HabitRow>("SELECT id, name, created_at FROM habits ORDER BY id ASC");
+  const allHabits = await all<HabitRow>(
+    "SELECT id, name, created_at FROM habits WHERE user_id = ? ORDER BY id ASC",
+    [user.id]
+  );
 
   const now = toISODate(new Date());
   const effectiveTodayISO =
@@ -840,6 +925,11 @@ app.get("/api/habits/:habitId/summary", async (req, res) => {
 });
 
 app.get("/api/checklist", async (req, res) => {
+  const user = getAuthUser(req);
+  if (!user) {
+    res.status(401).json({ message: "Unauthorized." });
+    return;
+  }
   const date = String(req.query.date ?? "").trim();
 
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
@@ -856,16 +946,22 @@ app.get("/api/checklist", async (req, res) => {
      FROM habits h
      LEFT JOIN checkins c
        ON h.id = c.habit_id AND c.date = ?
-     WHERE h.created_at <= ?
+     WHERE h.user_id = ?
+       AND h.created_at <= ?
        AND (h.deleted_on IS NULL OR h.deleted_on > ?)
      ORDER BY h.id ASC`,
-    [date, date, date]
+    [date, user.id, date, date]
   );
 
   res.json(rows.map((row) => ({ ...row, completed: Boolean(row.completed) })));
 });
 
 app.put("/api/checklist/:habitId", async (req, res) => {
+  const user = getAuthUser(req);
+  if (!user) {
+    res.status(401).json({ message: "Unauthorized." });
+    return;
+  }
   const habitId = Number(req.params.habitId);
   const date = String(req.body?.date ?? "").trim();
   const completed = Boolean(req.body?.completed);
@@ -887,8 +983,8 @@ app.put("/api/checklist/:habitId", async (req, res) => {
   }
 
   const habit = await get<HabitRow>(
-    "SELECT id FROM habits WHERE id = ? AND created_at <= ? AND (deleted_on IS NULL OR deleted_on > ?)",
-    [habitId, date, date]
+    "SELECT id FROM habits WHERE id = ? AND user_id = ? AND created_at <= ? AND (deleted_on IS NULL OR deleted_on > ?)",
+    [habitId, user.id, date, date]
   );
   if (!habit) {
     res.status(404).json({ message: "Habit not found." });
