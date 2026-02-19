@@ -852,7 +852,7 @@ app.get("/api/checklist", async (req, res) => {
     name: string;
     completed: number | null;
   }>(
-    `SELECT h.id AS habitId, h.name, c.completed
+    `SELECT h.id AS "habitId", h.name, c.completed
      FROM habits h
      LEFT JOIN checkins c
        ON h.id = c.habit_id AND c.date = ?
