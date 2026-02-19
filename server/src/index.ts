@@ -234,7 +234,10 @@ app.post("/api/auth/register", async (req, res) => {
   }
 
   const hash = await bcrypt.hash(password, 10);
-  const result = await run("INSERT INTO users (username, password_hash) VALUES (?, ?)", [username, hash]);
+  const result = await run(
+    "INSERT INTO users (username, password_hash) VALUES (?, ?) RETURNING id",
+    [username, hash]
+  );
   const user = await get<UserRow>("SELECT id, username FROM users WHERE id = ?", [result.lastID]);
   if (!user) {
     res.status(500).json({ message: "Unable to create user." });
@@ -556,7 +559,7 @@ app.post("/api/habits", async (req, res) => {
   }
 
   try {
-    const result = await run("INSERT INTO habits (name) VALUES (?)", [name]);
+    const result = await run("INSERT INTO habits (name) VALUES (?) RETURNING id", [name]);
     const habit = await get<HabitRow>(
       "SELECT id, name, created_at FROM habits WHERE id = ?",
       [result.lastID]

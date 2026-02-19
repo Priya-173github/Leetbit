@@ -1,77 +1,66 @@
-import sqlite3 from "sqlite3";
-import path from "path";
-import { fileURLToPath } from "url";
+import "dotenv/config";
+import pg from "pg";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const dbPath = process.env.DB_PATH || "data/leetbit.sqlite";
+const { Pool } = pg;
 
-export const db = new sqlite3.Database(dbPath);
-
-export function run(sql: string, params: unknown[] = []) {
-  return new Promise<{ lastID: number; changes: number }>((resolve, reject) => {
-    db.run(sql, params, function onRun(err) {
-      if (err) {
-        reject(err);
-        return;
-      }
-      resolve({ lastID: this.lastID, changes: this.changes });
-    });
-  });
+const databaseUrl = process.env.DATABASE_URL;
+if (!databaseUrl) {
+  throw new Error("DATABASE_URL is required for Postgres connection.");
 }
 
-export function all<T>(sql: string, params: unknown[] = []) {
-  return new Promise<T[]>((resolve, reject) => {
-    db.all(sql, params, (err, rows) => {
-      if (err) {
-        reject(err);
-        return;
-      }
-      resolve(rows as T[]);
-    });
-  });
+const pool = new Pool({
+  connectionString: databaseUrl,
+  ssl: { rejectUnauthorized: false }
+});
+
+function toPgSql(sql: string) {
+  let index = 0;
+  return sql.replace(/\?/g, () => `$${++index}`);
 }
 
-export function get<T>(sql: string, params: unknown[] = []) {
-  return new Promise<T | undefined>((resolve, reject) => {
-    db.get(sql, params, (err, row) => {
-      if (err) {
-        reject(err);
-        return;
-      }
-      resolve(row as T | undefined);
-    });
-  });
+export async function run(sql: string, params: unknown[] = []) {
+  const result = await pool.query(toPgSql(sql), params);
+  const firstRow = result.rows[0] as { id?: number } | undefined;
+  return {
+    lastID: Number(firstRow?.id ?? 0),
+    changes: result.rowCount ?? 0
+  };
+}
+
+export async function all<T>(sql: string, params: unknown[] = []) {
+  const result = await pool.query(toPgSql(sql), params);
+  return result.rows as T[];
+}
+
+export async function get<T>(sql: string, params: unknown[] = []) {
+  const result = await pool.query(toPgSql(sql), params);
+  return (result.rows[0] as T | undefined) ?? undefined;
 }
 
 export async function initDb() {
   await run(`
     CREATE TABLE IF NOT EXISTS users (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      id SERIAL PRIMARY KEY,
       username TEXT NOT NULL UNIQUE,
       password_hash TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (date('now'))
+      created_at TEXT NOT NULL DEFAULT (CURRENT_DATE::text)
     )
   `);
 
   await run(`
     CREATE TABLE IF NOT EXISTS habits (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      id SERIAL PRIMARY KEY,
       name TEXT NOT NULL UNIQUE,
-      created_at TEXT NOT NULL DEFAULT (date('now')),
+      created_at TEXT NOT NULL DEFAULT (CURRENT_DATE::text),
       deleted_on TEXT
     )
   `);
 
-  try {
-    await run("ALTER TABLE habits ADD COLUMN deleted_on TEXT");
-  } catch {
-    // Column already exists in existing databases.
-  }
+  await run("ALTER TABLE habits ADD COLUMN IF NOT EXISTS deleted_on TEXT");
 
   await run(`
     CREATE TABLE IF NOT EXISTS checkins (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      id SERIAL PRIMARY KEY,
       habit_id INTEGER NOT NULL,
       date TEXT NOT NULL,
       completed INTEGER NOT NULL DEFAULT 0,
