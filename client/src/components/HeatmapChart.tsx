@@ -13,6 +13,7 @@ export interface HabitHeatmapProps {
   selectedYear: string;
   yearOptions: Array<{ value: string; label: string }>;
   onYearChange: (year: string) => void;
+  onDateSelect?: (date: string) => void;
 }
 
 function parseIsoDate(value: string) {
@@ -126,7 +127,8 @@ export default function HabitHeatmap({
   onOpenManageHabits,
   selectedYear,
   yearOptions,
-  onYearChange
+  onYearChange,
+  onDateSelect
 }: HabitHeatmapProps) {
   const chartRef = useRef<HTMLDivElement | null>(null);
 
@@ -238,6 +240,15 @@ export default function HabitHeatmap({
       }))
     });
 
+    if (onDateSelect) {
+      chart.on("click", (params) => {
+        if (params.componentType === "series") {
+          const dateStr = (params.data as [string, number, number])[0];
+          onDateSelect(dateStr);
+        }
+      });
+    }
+
     const onResize = () => chart.resize();
     window.addEventListener("resize", onResize);
 
@@ -250,6 +261,9 @@ export default function HabitHeatmap({
   return (
     <div className="heatmap-shell">
       <div className="heatmap-toolbar">
+        <span style={{ marginRight: 'auto', fontSize: '13px', color: '#94a3b8', alignSelf: 'center' }}>
+          Click any past date to edit its checklist
+        </span>
         <CustomSelect
           label="Habit"
           value={String(selectedHabitId ?? "")}

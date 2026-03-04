@@ -277,13 +277,54 @@ body {
 }
 
 .habit-select select,
-.add-habit-form input,
-.checklist-header input {
+.add-habit-form input:not([type="date"]),
+.checklist-header input:not([type="date"]) {
   border: 1px solid #334155;
   border-radius: 8px;
   padding: 8px 10px;
   background: #0f172a;
   color: #e2e8f0;
+}
+
+input[type="date"] {
+  min-width: 130px;
+  border: 1px solid #334c74;
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: linear-gradient(180deg, #12223d 0%, #0d162a 100%);
+  color: #d6e6ff;
+  font-family: inherit;
+  font-size: 16px;
+}
+
+/* Make the calendar icon invisible but keep it clickable over our custom icon */
+input[type="date"].date-input-with-icon {
+  padding-right: 32px;
+}
+
+.date-picker-icon svg {
+  color: #7dd3fc;
+  width: 16px;
+  height: 16px;
+}
+
+input[type="date"].date-input-with-icon::-webkit-calendar-picker-indicator {
+  position: absolute;
+  right: 0;
+  width: 32px;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+
+input[type="date"]:not(.date-input-with-icon)::-webkit-calendar-picker-indicator {
+  filter: invert(1);
+  opacity: 0.6;
+  cursor: pointer;
+}
+
+input[type="date"]:not(.date-input-with-icon)::-webkit-calendar-picker-indicator:hover {
+  opacity: 1;
 }
 
 .heatmap {
@@ -685,10 +726,19 @@ body.light-theme .export-btn,
 body.light-theme .profile-btn,
 body.light-theme .select-trigger,
 body.light-theme .habit-select select,
-body.light-theme .add-habit-form input {
+body.light-theme .add-habit-form input,
+body.light-theme input[type="date"] {
   background: #ffffff;
   color: #0f172a;
   border-color: #bfd0ea;
+}
+
+body.light-theme input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(0);
+}
+
+body.light-theme .date-picker-icon svg {
+  color: #2563eb;
 }
 
 body.light-theme .profile-menu {

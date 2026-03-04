@@ -38,6 +38,7 @@ export function App() {
   const [summary, setSummary] = useState<HabitSummary | null>(null);
   const [checklist, setChecklist] = useState<DayChecklistItem[]>([]);
   const [newHabitName, setNewHabitName] = useState("");
+  const [newHabitStartDate, setNewHabitStartDate] = useState(todayISO);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>("dashboard");
@@ -57,6 +58,7 @@ export function App() {
     start: `${currentYear}-01-01`,
     end: `${currentYear}-12-31`
   });
+  const [selectedDate, setSelectedDate] = useState<string>(todayISO);
 
   const heatmapRangeOptions = useMemo(() => {
     const baseYears = new Set<number>(availableYears);
@@ -106,8 +108,8 @@ export function App() {
   useEffect(() => {
     if (!authUser) return;
     if (habits.length === 0) return;
-    void refreshChecklist(todayISO);
-  }, [authUser, habits.length]);
+    void refreshChecklist(selectedDate);
+  }, [authUser, habits.length, selectedDate]);
 
   async function initializeAuth() {
     try {
@@ -138,7 +140,7 @@ export function App() {
       setHabits(data);
       setSelectedHabitId(-1);
       if (data.length > 0) {
-        const [daily] = await Promise.all([getDayChecklist(todayISO)]);
+        const [daily] = await Promise.all([getDayChecklist(selectedDate)]);
         setChecklist(daily);
       } else {
         setChecklist([]);
@@ -198,13 +200,14 @@ export function App() {
 
     try {
       setError(null);
-      const created = await createHabit(name);
+      const created = await createHabit(name, newHabitStartDate);
       setHabits((prev) => [...prev, created]);
       setNewHabitName("");
+      setNewHabitStartDate(todayISO);
       setIsHabitModalOpen(false);
       setSelectedHabitId(-1);
       setHeatmapRange(String(currentYear));
-      await refreshChecklist(todayISO);
+      await refreshChecklist(selectedDate);
       await refreshHabitStats(-1);
       const streak = await getStreak();
       setStreakCount(streak.streak);
@@ -237,7 +240,7 @@ export function App() {
         }
       }
 
-      await refreshChecklist(todayISO);
+      await refreshChecklist(selectedDate);
       await refreshHabitStats(-1);
       const streak = await getStreak();
       setStreakCount(streak.streak);
@@ -250,7 +253,7 @@ export function App() {
   async function toggleHabit(item: DayChecklistItem, checked: boolean) {
     try {
       setError(null);
-      await updateChecklistItem(item.habitId, todayISO, checked);
+      await updateChecklistItem(item.habitId, selectedDate, checked);
       setChecklist((prev) =>
         prev.map((entry) =>
           entry.habitId === item.habitId ? { ...entry, completed: checked } : entry
@@ -491,6 +494,12 @@ export function App() {
                     selectedYear={heatmapRange}
                     yearOptions={heatmapRangeOptions}
                     onYearChange={setHeatmapRange}
+                    onDateSelect={(dateStr) => {
+                      // Prevent selecting future dates
+                      if (dateStr <= todayISO) {
+                        setSelectedDate(dateStr);
+                      }
+                    }}
                   />
                 </>
               ) : (
@@ -498,8 +507,39 @@ export function App() {
               )}
 
               <div className="checklist">
-                <div className="checklist-header">
-                  <h3>Daily Checklist (Today: {todayISO})</h3>
+                <div className="checklist-header" style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+                  <h3 style={{ margin: 0 }}>Daily Checklist</h3>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginLeft: 'auto' }}>
+                    <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                      <input
+                        title="Select date to edit checklist"
+                        type="date"
+                        value={selectedDate}
+                        max={todayISO}
+                        onChange={(e) => {
+                          if (e.target.value <= todayISO) {
+                            setSelectedDate(e.target.value);
+                          }
+                        }}
+                        className="date-picker date-input-with-icon"
+                        style={{ cursor: 'pointer' }}
+                      />
+                      <span className="date-picker-icon" style={{ position: 'absolute', right: '10px', pointerEvents: 'none', display: 'flex' }}>
+                        <FiCalendar />
+                      </span>
+                    </div>
+                    {selectedDate !== todayISO && (
+                      <button
+                        type="button"
+                        className="ghost-btn"
+                        style={{ fontSize: '0.85rem', padding: '6px 10px' }}
+                        onClick={() => setSelectedDate(todayISO)}
+                      >
+                        Back to Today
+                      </button>
+                    )}
+                  </div>
                 </div>
                 {checklist.length === 0 ? (
                   <p className="muted">No habits yet. Add one from the top bar.</p>
@@ -546,6 +586,19 @@ export function App() {
                 placeholder="e.g. Yoga"
                 required
               />
+              <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                <input
+                  type="date"
+                  value={newHabitStartDate}
+                  onChange={(e) => setNewHabitStartDate(e.target.value)}
+                  required
+                  className="date-input-with-icon"
+                  style={{ width: '100%' }}
+                />
+                <span className="date-picker-icon" style={{ position: 'absolute', right: '10px', pointerEvents: 'none', display: 'flex' }}>
+                  <FiCalendar />
+                </span>
+              </div>
               <div className="modal-actions">
                 <button type="button" className="ghost-btn" onClick={() => setIsHabitModalOpen(false)}>
                   Cancel

@@ -569,6 +569,21 @@ app.post("/api/habits", async (req, res) => {
     res.status(400).json({ message: "Habit name is required." });
     return;
   }
+  const createdAt = String(req.body?.createdAt ?? "").trim();
+  const today = toISODate(new Date());
+
+  let finalCreatedAt = today;
+  if (createdAt) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(createdAt)) {
+      res.status(400).json({ message: "createdAt must be YYYY-MM-DD." });
+      return;
+    }
+    if (createdAt > today) {
+      res.status(400).json({ message: "createdAt cannot be in the future." });
+      return;
+    }
+    finalCreatedAt = createdAt;
+  }
 
   const existingActive = await get<HabitRow>(
     "SELECT id FROM habits WHERE user_id = ? AND lower(name) = lower(?) AND deleted_on IS NULL",
@@ -584,10 +599,9 @@ app.post("/api/habits", async (req, res) => {
     [user.id, name]
   );
   if (existingDeleted) {
-    const today = toISODate(new Date());
     await run(
       "UPDATE habits SET deleted_on = NULL, created_at = ? WHERE id = ? AND user_id = ?",
-      [today, existingDeleted.id, user.id]
+      [finalCreatedAt, existingDeleted.id, user.id]
     );
     const restored = await get<HabitRow>(
       "SELECT id, name, created_at FROM habits WHERE id = ? AND user_id = ?",
@@ -603,8 +617,8 @@ app.post("/api/habits", async (req, res) => {
 
   try {
     const result = await run(
-      "INSERT INTO habits (name, user_id) VALUES (?, ?) RETURNING id",
-      [name, user.id]
+      "INSERT INTO habits (name, user_id, created_at) VALUES (?, ?, ?) RETURNING id",
+      [name, user.id, finalCreatedAt]
     );
     const habit = await get<HabitRow>(
       "SELECT id, name, created_at FROM habits WHERE id = ? AND user_id = ?",
@@ -977,8 +991,8 @@ app.put("/api/checklist/:habitId", async (req, res) => {
     return;
   }
 
-  if (date !== today) {
-    res.status(400).json({ message: "You can only update checklist for today's date." });
+  if (date > today) {
+    res.status(400).json({ message: "You cannot update checklist for future dates." });
     return;
   }
 

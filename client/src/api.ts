@@ -96,10 +96,10 @@ export function me() {
   return request<{ user: AuthUser }>("/auth/me");
 }
 
-export function createHabit(name: string) {
+export function createHabit(name: string, createdAt?: string) {
   return request<Habit>("/habits", {
     method: "POST",
-    body: JSON.stringify({ name })
+    body: JSON.stringify({ name, createdAt })
   });
 }
 
